@@ -1,0 +1,6 @@
+[submodule "backend"]
+	path = backend
+	url = https://github.com/thaivanlam/graduation-thesis-microservice-laptop-ecommerce-2.git
+[submodule "frontend"]
+	path = frontend
+	url = https://github.com/thaivanlam/Ecom-Frontend-thesis-project-2025.1.git
