@@ -1,0 +1,47 @@
+# =====================================================================
+# TechZone — full stack (backend microservices + frontend SPA)
+#
+#   docker compose up --build          # from this directory
+#
+# The backend services are pulled in verbatim from backend/docker-compose.yml
+# so there is a single definition of them; this file only adds the frontend and
+# wires it onto the same `ecommerce-network`.
+#
+# Requires Docker Compose v2.20+ (for `include`).
+# =====================================================================
+name: techzone
+
+include:
+  - path: backend/docker-compose.yml
+    # Interpolate the backend file from the .env next to THIS file, so the whole
+    # stack is configured from one place.
+    env_file: .env
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Empty on purpose: the SPA then calls its own origin and nginx
+        # reverse-proxies /user-manager, /product-manager and /order-manager to
+        # the gateway inside the Docker network — no CORS, first-party cookie.
+        VITE_BACK_END_URL: ${VITE_BACK_END_URL-}
+        VITE_FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY-}
+    container_name: frontend
+    profiles: ["prod"]
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    environment:
+      # Read at container start, not build time — changing it needs no rebuild.
+      API_GATEWAY_URL: ${API_GATEWAY_URL:-http://api-gateway:8080}
+    networks:
+      - ecommerce-network
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  ecommerce-network:
+    driver: bridge

@@ -18,10 +18,20 @@ Microservices Architecture"*.
 git clone --recurse-submodules <this-repo-url>
 # in an existing clone:
 git submodule update --init --recursive
+
+cp .env.example .env      # then fill in STRIPE_SECRET_KEY and MAIL_PASSWORD
+docker compose up --build # frontend on http://localhost:5173
 ```
 
-Startup instructions, environment variables, and seeded accounts:
+[`docker-compose.yml`](docker-compose.yml) runs the whole platform — the backend
+microservices (included from [`backend/docker-compose.yml`](backend/docker-compose.yml))
+and the frontend container — on one Docker network. Requires Docker Compose
+v2.20+.
+
+Startup modes, environment variables, and seeded accounts:
 [`docs/operations/running-locally.md`](docs/operations/running-locally.md).
+Container topology and image details:
+[`docs/operations/docker-setup.md`](docs/operations/docker-setup.md).
 
 ## Documentation
 

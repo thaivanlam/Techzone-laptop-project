@@ -1,0 +1,13 @@
+# Local environment — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# Editors
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
