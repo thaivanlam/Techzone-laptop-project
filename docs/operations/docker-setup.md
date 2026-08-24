@@ -82,6 +82,36 @@ address each other by service name (`api-gateway`, `mysql`, `rabbitmq`,
 | `notification-service` | 8084 | 8084 |
 | `mysql` | 3306 | 3306 |
 | `rabbitmq` | 5672, 15672 | 5672, 15672 |
+| `db-seed` | — | — (one-shot, profile `seed`) |
+
+---
+
+## Database Initialisation
+
+Two folders under `backend/` feed the database, at two different moments:
+
+- [`backend/init-db/`](../../backend/init-db) is mounted into the MySQL
+  container's `/docker-entrypoint-initdb.d` and creates the three logical
+  databases (`ecommerce`, `ecommerce_product`, `ecommerce_order`) on a fresh
+  volume, before any service starts.
+- [`backend/seed-db/`](../../backend/seed-db) is applied afterwards by the
+  one-shot `db-seed` container, which loads a demo catalogue once
+  product-service has created its tables.
+
+The split exists because the schema belongs to Hibernate (`ddl-auto: update`):
+entrypoint scripts run before any table exists, so they cannot insert rows. The
+`mysql` service also sets no `MYSQL_DATABASE`, so the init script alone decides
+which databases exist and with which collation.
+
+`db-seed` is gated behind the `seed` Compose profile and skips itself when the
+catalogue already has rows:
+
+```bash
+COMPOSE_PROFILES=prod,seed docker compose up -d
+```
+
+Full detail — including the `product_seq` id-generator gotcha — in
+[database-seeding.md](database-seeding.md).
 
 ---
 
@@ -207,13 +237,15 @@ is absent and returns `502` for API paths until it appears.
 | `API_GATEWAY_URL` only | `docker compose up -d frontend` |
 | One backend service | `docker compose build <service> && docker compose up -d <service>` |
 | Everything | `docker compose up --build` |
-| Reset the database | `docker compose down -v` (drops `techzone_mysql_data`) |
+| Load the demo catalogue | `docker compose --profile seed up db-seed` |
+| Reset the database | `docker compose down -v` (drops `techzone_mysql_data`, so `init-db/` re-runs) |
 
 ---
 
 ## Related Documents
 
 - [running-locally.md](running-locally.md) — startup procedure and environment variables
+- [database-seeding.md](database-seeding.md) — database creation and the catalogue seeder
 - [../frontend/overview.md](../frontend/overview.md) — SPA stack and structure
 - [../backend/services/api-gateway.md](../backend/services/api-gateway.md) — routes, CORS, JWT enforcement
 - [../architecture/system-overview.md](../architecture/system-overview.md) — services and request flow

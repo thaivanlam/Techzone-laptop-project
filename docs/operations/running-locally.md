@@ -61,7 +61,7 @@ dependencies, so expect several minutes. Later runs are cached.
 | Variable | Default in `.env.example` | Meaning |
 |---|---|---|
 | `SPRING_PROFILES_ACTIVE` | `prod` | Which Config Server profile the services load (`<service>-<profile>.yml`). `dev` points at `localhost`; `prod` points at Docker network hostnames. |
-| `COMPOSE_PROFILES` | `prod` | Which containers Compose starts. `prod` starts the whole stack; empty starts **infrastructure only**. |
+| `COMPOSE_PROFILES` | `prod` | Which containers Compose starts. `prod` starts the whole stack; empty starts **infrastructure only**; add `seed` (`prod,seed`) to also run the demo-catalogue seeder. |
 | `STRIPE_SECRET_KEY` | — | Required by Order Service for payments |
 | `MAIL_PASSWORD` | — | Gmail app password, required by Notification Service |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | — | Stripe key baked into the frontend bundle **at build time** |
@@ -175,6 +175,34 @@ already exist.
 
 ---
 
+## Seeded Catalogue
+
+Products are **not** seeded by default — a fresh stack starts with an empty
+shop. To load a demo catalogue of 14 laptops across 4 categories, enable the
+`seed` profile alongside `prod`:
+
+```bash
+COMPOSE_PROFILES=prod,seed docker compose up -d
+docker compose logs -f db-seed
+```
+
+The one-shot `db-seed` container waits for product-service to create its tables,
+then loads the catalogue and assigns it to `seller1`. It skips itself if the
+catalogue already has rows, so leaving the profile enabled is safe. The three
+databases themselves are created before any service starts, by the scripts in
+`backend/init-db/`.
+
+After seeding, run the one check that actually exercises id generation: sign in
+as `seller1` / `password2`, open `/admin/products` and create a product. Seeded
+products carry explicit ids 1–14, so if the seeder failed to raise
+`product_seq`, that save fails on a duplicate primary key — while browsing,
+search and checkout all still look fine.
+
+See [database-seeding.md](database-seeding.md) for the full picture and the
+complete verification procedure.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
@@ -193,4 +221,7 @@ already exist.
 | Product images 404 | `IMAGE_BASE_URL` points at an origin that is not published, or was left at port 8080 while the gateway port changed |
 | Order placement fails at checkout | Product Service is down — there is no circuit breaker, so the call fails hard |
 | No confirmation or welcome email | RabbitMQ unreachable, or `MAIL_PASSWORD` is not a valid Gmail app password |
-| Schema not created | The JDBC URLs rely on `createDatabaseIfNotExist=true`; confirm MySQL is healthy and credentials are correct |
+| Schema not created | Databases come from `backend/init-db/` (and the JDBC `createDatabaseIfNotExist=true` as a fallback); tables come from Hibernate at boot — confirm MySQL is healthy and credentials are correct |
+| Edits to `init-db/*.sql` have no effect | Those scripts run only when the `mysql_data` volume is created; `docker compose down -v` first |
+| `db-seed` exits with "has not created its tables" | product-service never came up — check `docker compose logs product-service` |
+| Shop is still empty after `db-seed` ran | It logs `catalogue already holds N product(s)` and skips whenever any product exists |
