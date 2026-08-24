@@ -27,6 +27,18 @@ documentation from **both** submodules.
    `docs/README.md`.
 5. **English only.** All documentation is written in English, regardless of the
    language used in conversation or commits.
+6. **Log the session.** Every work session that changes code or configuration
+   gets an entry at the top of the current month's file in
+   [`docs/dev-log/`](docs/dev-log) (`YYYY-MM.md`), in the same change set.
+   Follow the format and the redaction rules in
+   [`docs/dev-log/README.md`](docs/dev-log/README.md) — name secret variables,
+   never their values, and never write a live host's address.
+7. **Record decisions as ADRs.** A platform-level choice gets a new numbered
+   file in [`docs/architecture/decisions/`](docs/architecture/decisions), copied
+   from `template.md`. Accepted ADRs are immutable — supersede, never rewrite.
+8. **Update the changelog on release.** [`CHANGELOG.md`](CHANGELOG.md) records
+   user-visible changes per version. Add to `[Unreleased]` as work lands; move
+   those entries into a version section when a release is tagged.
 
 ## Documentation Map
 
@@ -34,7 +46,7 @@ documentation from **both** submodules.
 |---|---|
 | Services, ports, request flow | [docs/architecture/system-overview.md](docs/architecture/system-overview.md) |
 | JWT, roles, gateway enforcement | [docs/architecture/security-model.md](docs/architecture/security-model.md) |
-| Platform technology trade-offs | [docs/architecture/design-decisions.md](docs/architecture/design-decisions.md) |
+| Platform technology trade-offs | [docs/architecture/decisions/](docs/architecture/decisions/) (ADRs) |
 | Backend modules and conventions | [docs/backend/overview.md](docs/backend/overview.md) |
 | All HTTP endpoints | [docs/backend/api-reference.md](docs/backend/api-reference.md) |
 | API Gateway internals | [docs/backend/services/api-gateway.md](docs/backend/services/api-gateway.md) |
@@ -47,6 +59,8 @@ documentation from **both** submodules.
 | Frontend stack and structure | [docs/frontend/overview.md](docs/frontend/overview.md) |
 | Frontend trade-offs | [docs/frontend/design-decisions.md](docs/frontend/design-decisions.md) |
 | Startup, env vars, seeded users | [docs/operations/running-locally.md](docs/operations/running-locally.md) |
+| How each change came about | [docs/dev-log/](docs/dev-log) |
+| Released, user-visible changes | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Submodule Notes
 
