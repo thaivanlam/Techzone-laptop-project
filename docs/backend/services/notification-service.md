@@ -409,7 +409,7 @@ rules) and signals that this module was authored separately.
 |---|---|
 | Order confirmation producer | [order-service.md](order-service.md#9-async-integration--rabbitmq) |
 | Signup welcome-email producer | [user-service.md](user-service.md#7-async-integration--rabbitmq) |
-| Why RabbitMQ for notifications | [../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-rabbitmq-for-notifications) |
+| Why RabbitMQ for notifications | [../../architecture/decisions/0005-rabbitmq-for-notifications.md](../../architecture/decisions/0005-rabbitmq-for-notifications.md) |
 | Mail settings and profile overrides | [config-server.md](config-server.md#notification-serviceyml-shared) |
 | Services, ports, request flow | [../../architecture/system-overview.md](../../architecture/system-overview.md) |
 | Endpoint listing | [../api-reference.md](../api-reference.md#notification-service--8084-not-exposed-through-the-gateway) |

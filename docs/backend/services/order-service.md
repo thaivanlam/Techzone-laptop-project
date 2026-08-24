@@ -222,7 +222,7 @@ Double specialPrice; Long   sellerId;     String sellerEmail;
 
 Order Service holds **no foreign key** to Product Service. A later price change,
 rename, or product deletion leaves historical orders intact. The rationale is in
-[../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-productsnapshot-embedded-instead-of-a-foreign-key-to-product).
+[../../architecture/decisions/0007-embedded-product-snapshot.md](../../architecture/decisions/0007-embedded-product-snapshot.md).
 
 The two embeddings use different `@AttributeOverrides`, so the column names
 differ between the tables:
@@ -829,8 +829,8 @@ handler, and `OrderRequestDTO.paymentMethod` are all unreferenced.
 | Topic | Document |
 |---|---|
 | Order placement walkthrough across services | [../../architecture/system-overview.md](../../architecture/system-overview.md#walkthrough-placing-an-order) |
-| Why `ProductSnapshot` instead of a foreign key | [../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-productsnapshot-embedded-instead-of-a-foreign-key-to-product) |
-| Why `RestTemplate` over WebClient or Feign | [../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-resttemplate-instead-of-webclient-or-feign) |
+| Why `ProductSnapshot` instead of a foreign key | [../../architecture/decisions/0007-embedded-product-snapshot.md](../../architecture/decisions/0007-embedded-product-snapshot.md) |
+| Why `RestTemplate` over WebClient or Feign | [../../architecture/decisions/0009-resttemplate-for-service-calls.md](../../architecture/decisions/0009-resttemplate-for-service-calls.md) |
 | Gateway role mappings for `/order-manager/**` | [api-gateway.md](api-gateway.md#role-mappings) |
 | `/api/internal/**` stock endpoints | [product-service.md](product-service.md#7-internal-api-for-order-service) |
 | Email consumer | [notification-service.md](notification-service.md) |

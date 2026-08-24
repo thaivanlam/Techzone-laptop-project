@@ -111,7 +111,7 @@ tables. Two mechanisms bridge the boundary:
 - **Embedded snapshots** — `OrderItem` and `CartItem` embed a `ProductSnapshot`
   (name, price, image) instead of a foreign key, capturing product state at the
   time of the order. See
-  [design-decisions.md](design-decisions.md#why-productsnapshot-embedded-instead-of-a-foreign-key-to-product).
+  [decisions/0007-embedded-product-snapshot.md](decisions/0007-embedded-product-snapshot.md).
 - **Asynchronous messaging** — user registration and order confirmation events
   are published to RabbitMQ and consumed by Notification Service.
 

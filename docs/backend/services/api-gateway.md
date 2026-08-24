@@ -330,7 +330,7 @@ The same base64 string is repeated in the gateway's `application.yaml` and in
 Config Server's `user-service.yml`, `product-service.yml`, and
 `order-service.yml`. It is committed to the repository, so anyone with repo
 access can mint a valid admin token. See
-[../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-a-shared-jwt-secret-across-all-services).
+[../../architecture/decisions/0003-shared-hmac-jwt-secret.md](../../architecture/decisions/0003-shared-hmac-jwt-secret.md).
 
 ### 3. Role mappings do not cover every privileged path
 

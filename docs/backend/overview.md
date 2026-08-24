@@ -105,7 +105,7 @@ order confirmations to RabbitMQ.
 
 Cart and order items embed a `ProductSnapshot` rather than referencing Product
 by foreign key — see
-[../architecture/design-decisions.md](../architecture/design-decisions.md#why-productsnapshot-embedded-instead-of-a-foreign-key-to-product).
+[../architecture/decisions/0007-embedded-product-snapshot.md](../architecture/decisions/0007-embedded-product-snapshot.md).
 
 Database: `ecommerce_order`. Full document:
 [services/order-service.md](services/order-service.md).

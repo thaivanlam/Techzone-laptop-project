@@ -225,7 +225,7 @@ means the fix for SEC-01 does not, on its own, protect the admin role.
 environment like `STRIPE_SECRET_KEY` and `MAIL_PASSWORD` already are. Rotate the
 committed value. Longer term, RS256 with only user-service holding the private
 key removes the shared-secret problem entirely — the trade-off is recorded in
-[../architecture/design-decisions.md](../architecture/design-decisions.md#why-a-shared-jwt-secret-across-all-services).
+[../architecture/decisions/0003-shared-hmac-jwt-secret.md](../architecture/decisions/0003-shared-hmac-jwt-secret.md).
 
 ---
 
@@ -867,7 +867,7 @@ valid until it expires — there is no blacklist and no refresh rotation.
 a `/api/auth/me` endpoint so the SPA can read user info without reading the
 token. Add short-lived access tokens with refresh rotation if revocation
 matters. The trade-off as originally accepted is recorded in
-[../architecture/design-decisions.md](../architecture/design-decisions.md#why-cookie-based-jwt-instead-of-an-authorization-header).
+[../architecture/decisions/0004-cookie-based-jwt.md](../architecture/decisions/0004-cookie-based-jwt.md).
 
 ---
 

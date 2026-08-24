@@ -292,7 +292,7 @@ indeed Order → Product already works that way. Eureka is here because the
 gateway's `lb://` routing and Spring Cloud LoadBalancer expect a registry, and
 because it keeps the door open for multiple instances per service. The
 alternative (Kubernetes service discovery) is discussed in
-[../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-eureka-instead-of-kubernetes-service-discovery).
+[../../architecture/decisions/0002-eureka-service-discovery.md](../../architecture/decisions/0002-eureka-service-discovery.md).
 
 ---
 
@@ -302,7 +302,7 @@ alternative (Kubernetes service discovery) is discussed in
 |---|---|
 | `lb://` routes and gateway filters | [api-gateway.md](api-gateway.md) |
 | Services, ports, request flow | [../../architecture/system-overview.md](../../architecture/system-overview.md) |
-| Why Eureka over Kubernetes discovery | [../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-eureka-instead-of-kubernetes-service-discovery) |
+| Why Eureka over Kubernetes discovery | [../../architecture/decisions/0002-eureka-service-discovery.md](../../architecture/decisions/0002-eureka-service-discovery.md) |
 | Eureka zone values per profile | [config-server.md](config-server.md) |
 | Startup order and troubleshooting | [../../operations/running-locally.md](../../operations/running-locally.md) |
 | Backend module layout | [../overview.md](../overview.md) |

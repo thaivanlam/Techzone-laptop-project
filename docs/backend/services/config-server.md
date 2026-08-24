@@ -104,7 +104,7 @@ rather than a git backend. Because the search location is `classpath:`,
 configuration is packaged **inside the jar** at build time — changing a value
 means rebuilding and redeploying the Config Server image. The trade-off is
 recorded in
-[../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-config-server-with-the-native-profile).
+[../../architecture/decisions/0006-config-server-native-profile.md](../../architecture/decisions/0006-config-server-native-profile.md).
 
 ### Directory layout
 
@@ -403,7 +403,7 @@ failed context.
 
 | Topic | Document |
 |---|---|
-| Why native profile instead of a git backend | [../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-config-server-with-the-native-profile) |
+| Why native profile instead of a git backend | [../../architecture/decisions/0006-config-server-native-profile.md](../../architecture/decisions/0006-config-server-native-profile.md) |
 | Startup order, `.env` contents, seeded users | [../../operations/running-locally.md](../../operations/running-locally.md) |
 | Services and ports | [../../architecture/system-overview.md](../../architecture/system-overview.md) |
 | JWT secret and cookie name usage | [../../architecture/security-model.md](../../architecture/security-model.md) |

@@ -766,7 +766,7 @@ non-paginated `findByProductNameLikeIgnoreCase`, and
 | Topic | Document |
 |---|---|
 | The consumer of `/api/internal/**` | [order-service.md](order-service.md#7-order-placement-flow) |
-| Why `ProductSnapshot` instead of a foreign key | [../../architecture/design-decisions.md](../../architecture/design-decisions.md#why-productsnapshot-embedded-instead-of-a-foreign-key-to-product) |
+| Why `ProductSnapshot` instead of a foreign key | [../../architecture/decisions/0007-embedded-product-snapshot.md](../../architecture/decisions/0007-embedded-product-snapshot.md) |
 | Gateway role mappings and their gaps | [api-gateway.md](api-gateway.md#role-mappings) |
 | JWT claims (`email`, `userId`, `roles`) | [../../architecture/security-model.md](../../architecture/security-model.md#claims) |
 | Config keys and profile overrides | [config-server.md](config-server.md#product-serviceyml-shared) |
