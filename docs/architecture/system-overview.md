@@ -17,6 +17,7 @@ Related documents: [security-model.md](security-model.md) ·
 
 | Service | Port | Responsibility | Database |
 |---|---|---|---|
+| **Frontend** | 5173 | React SPA; in Docker, nginx also reverse-proxies API calls to the gateway | — |
 | **API Gateway** | 8080 | Routing, JWT validation, CORS, role-based filtering | — |
 | **Config Server** | 8888 | Centralized configuration (native profile, classpath) | — |
 | **Discovery Service** | 8761 | Eureka service registry | — |
@@ -27,6 +28,10 @@ Related documents: [security-model.md](security-model.md) ·
 
 Supporting infrastructure: **MySQL 8.0** (one container, one logical database
 per service) and **RabbitMQ 3** (management UI on 15672).
+
+Every container, the frontend included, joins the same `ecommerce-network`
+bridge and addresses the others by service name. See
+[../operations/docker-setup.md](../operations/docker-setup.md).
 
 ---
 

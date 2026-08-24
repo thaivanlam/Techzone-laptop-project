@@ -37,7 +37,13 @@ documentation from **both** submodules.
 | Platform technology trade-offs | [docs/architecture/design-decisions.md](docs/architecture/design-decisions.md) |
 | Backend modules and conventions | [docs/backend/overview.md](docs/backend/overview.md) |
 | All HTTP endpoints | [docs/backend/api-reference.md](docs/backend/api-reference.md) |
+| API Gateway internals | [docs/backend/services/api-gateway.md](docs/backend/services/api-gateway.md) |
+| Config Server internals | [docs/backend/services/config-server.md](docs/backend/services/config-server.md) |
+| Discovery Service internals | [docs/backend/services/discovery-service.md](docs/backend/services/discovery-service.md) |
 | User Service internals | [docs/backend/services/user-service.md](docs/backend/services/user-service.md) |
+| Product Service internals | [docs/backend/services/product-service.md](docs/backend/services/product-service.md) |
+| Order Service internals | [docs/backend/services/order-service.md](docs/backend/services/order-service.md) |
+| Notification Service internals | [docs/backend/services/notification-service.md](docs/backend/services/notification-service.md) |
 | Frontend stack and structure | [docs/frontend/overview.md](docs/frontend/overview.md) |
 | Frontend trade-offs | [docs/frontend/design-decisions.md](docs/frontend/design-decisions.md) |
 | Startup, env vars, seeded users | [docs/operations/running-locally.md](docs/operations/running-locally.md) |

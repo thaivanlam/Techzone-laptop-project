@@ -28,7 +28,14 @@ originates in either submodule is mirrored and maintained here.
 |---|---|
 | [backend/overview.md](backend/overview.md) | Backend module layout, per-service responsibilities, infrastructure |
 | [backend/api-reference.md](backend/api-reference.md) | Every gateway-exposed endpoint, with access level |
+| [backend/known-defects.md](backend/known-defects.md) | Verified defect register: severity, reproduction, fix, remediation order |
+| [backend/services/api-gateway.md](backend/services/api-gateway.md) | Gateway routes, CORS, JWT filter, role enforcement |
+| [backend/services/config-server.md](backend/services/config-server.md) | Centralised configuration: profiles, per-service property files |
+| [backend/services/discovery-service.md](backend/services/discovery-service.md) | Eureka registry: who registers, lease timings, dashboard access |
 | [backend/services/user-service.md](backend/services/user-service.md) | Full user-service architecture: layers, data model, JWT, RabbitMQ, config |
+| [backend/services/product-service.md](backend/services/product-service.md) | Catalogue, faceted search, specifications, images, SKU, internal stock API |
+| [backend/services/order-service.md](backend/services/order-service.md) | Cart lifecycle, order placement, Stripe, RabbitMQ, analytics |
+| [backend/services/notification-service.md](backend/services/notification-service.md) | RabbitMQ consumer, messaging topology, Gmail SMTP delivery |
 
 ### Frontend
 | Document | What it covers |
@@ -39,7 +46,8 @@ originates in either submodule is mirrored and maintained here.
 ### Operations
 | Document | What it covers |
 |---|---|
-| [operations/running-locally.md](operations/running-locally.md) | Docker Compose and dev-mode startup, environment variables, seeded users |
+| [operations/running-locally.md](operations/running-locally.md) | The three startup modes, environment variables, endpoints, seeded users |
+| [operations/docker-setup.md](operations/docker-setup.md) | Compose file layout, container topology, frontend image, nginx API proxy |
 
 ---
 
@@ -78,4 +86,7 @@ originates in either submodule is mirrored and maintained here.
 |---|---|
 | `architecture/system-overview.md`, `architecture/security-model.md`, `architecture/design-decisions.md`, `backend/overview.md`, `backend/api-reference.md`, `operations/running-locally.md` | `backend/README.md` |
 | `backend/services/user-service.md` | `backend/user-service/docs/ARCHITECTURE.md` |
+| `backend/services/api-gateway.md`, `backend/services/config-server.md`, `backend/services/discovery-service.md`, `backend/services/product-service.md`, `backend/services/order-service.md`, `backend/services/notification-service.md` | Written here — no upstream document exists; derived from the module sources |
+| `backend/known-defects.md` | Written here — derived from a source audit of the backend modules |
 | `frontend/overview.md`, `frontend/design-decisions.md` | `frontend/README.md` |
+| `operations/docker-setup.md` | Written here — describes the superproject's own `docker-compose.yml` and `frontend/Dockerfile` |

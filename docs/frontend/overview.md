@@ -1,9 +1,10 @@
 # Frontend Overview
 
 The frontend ([`frontend/`](../../frontend)) is a single-page application built
-with **React 19**, **Redux Toolkit**, and **Tailwind CSS v4**, served by Vite on
-port `5173`. It is the only client of the platform and talks exclusively to the
-API Gateway on port `8080`.
+with **React 19**, **Redux Toolkit**, and **Tailwind CSS v4**, published on port
+`5173` — by the Vite dev server in development, by nginx when containerised. It
+is the only client of the platform and talks exclusively to the API Gateway,
+either directly on port `8080` or through the container's nginx proxy.
 
 Related documents: [design-decisions.md](design-decisions.md) ·
 [../backend/api-reference.md](../backend/api-reference.md) ·
@@ -217,7 +218,7 @@ addresses are never referenced.
 
 ## Environment Variables
 
-Create `.env` in `frontend/`:
+Copy [`frontend/.env.example`](../../frontend/.env.example) to `frontend/.env`:
 
 ```env
 # Backend API Gateway URL
@@ -230,7 +231,11 @@ VITE_STRIPE_PUBLISHABLE_KEY=pk_test_xxx
 VITE_FRONTEND_URL=http://localhost:5173
 ```
 
-## Running
+Vite inlines these at **build time**, not run time — a change only takes effect
+after `npm run build` (or a fresh `npm run dev`), and in Docker only after the
+image is rebuilt.
+
+## Running with the Vite Dev Server
 
 Requires Node.js >= 20.19.0 and the backend gateway reachable on port 8080.
 
@@ -243,5 +248,34 @@ npm run build    # production build
 npm run preview  # preview the production build
 ```
 
+## Running as a Container
+
+[`frontend/Dockerfile`](../../frontend/Dockerfile) builds the bundle with
+`node:22-alpine` and serves it with `nginx:1.27-alpine`. The nginx config
+([`frontend/nginx/default.conf.template`](../../frontend/nginx/default.conf.template))
+does two things beyond serving files:
+
+- **SPA fallback** — unknown paths return `index.html` so React Router routes
+  survive a refresh.
+- **API reverse proxy** — `/user-manager`, `/product-manager`, and
+  `/order-manager` are forwarded to the API Gateway (`API_GATEWAY_URL`,
+  default `http://api-gateway:8080`).
+
+Because of that proxy the container is built with `VITE_BACK_END_URL` **empty**:
+the SPA calls its own origin, which removes CORS from the picture and keeps the
+`springBootEcom` JWT cookie first-party.
+
+```bash
+# whole platform, from the repo root
+docker compose up --build          # http://localhost:5173
+
+# just this container, against a gateway on the host
+cd frontend
+docker build -t techzone-frontend .
+docker run --rm -p 5173:80 -e API_GATEWAY_URL=http://host.docker.internal:8080 techzone-frontend
+```
+
 Full stack startup is documented in
-[../operations/running-locally.md](../operations/running-locally.md).
+[../operations/running-locally.md](../operations/running-locally.md); the image
+and network details are in
+[../operations/docker-setup.md](../operations/docker-setup.md).

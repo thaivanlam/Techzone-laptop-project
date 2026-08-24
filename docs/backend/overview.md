@@ -4,9 +4,15 @@ The backend ([`backend/`](../../backend)) is a Maven multi-module microservices
 system on **Spring Boot 3.5.7** / **Spring Cloud 2025** / **Java 21**.
 
 Related documents: [api-reference.md](api-reference.md) ·
-[services/user-service.md](services/user-service.md) ·
+[known-defects.md](known-defects.md) ·
 [../architecture/system-overview.md](../architecture/system-overview.md) ·
 [../operations/running-locally.md](../operations/running-locally.md)
+
+Every module has its own architecture document under [`services/`](services):
+[api-gateway](services/api-gateway.md) · [config-server](services/config-server.md) ·
+[discovery-service](services/discovery-service.md) · [user-service](services/user-service.md) ·
+[product-service](services/product-service.md) · [order-service](services/order-service.md) ·
+[notification-service](services/notification-service.md)
 
 ---
 
@@ -21,8 +27,12 @@ backend/
 ├── product-service/        # Catalog, categories, specs, images — :8081
 ├── order-service/          # Cart, orders, Stripe payments — :8083
 ├── notification-service/   # RabbitMQ consumer → SMTP — :8084
-└── docker-compose.yml      # Full stack: MySQL, RabbitMQ, all services
+└── docker-compose.yml      # Backend stack: MySQL, RabbitMQ, all services
 ```
+
+The repo root adds [`../../docker-compose.yml`](../../docker-compose.yml), which
+`include`s this file and attaches the frontend container to the same network —
+see [../operations/docker-setup.md](../operations/docker-setup.md).
 
 ---
 
@@ -43,6 +53,7 @@ The single entry point. Responsibilities:
   `http://localhost:5173`) with credentials.
 
 Key file: `backend/api-gateway/src/main/resources/application.yaml`.
+Full document: [services/api-gateway.md](services/api-gateway.md).
 
 ### Config Server (`:8888`)
 
@@ -52,11 +63,14 @@ service resolves three layers: its own bootstrap `application.yaml`, the shared
 `<service>-prod.yml`.
 
 Key directory: `backend/config-server/src/main/resources/config/`.
+Full document: [services/config-server.md](services/config-server.md).
 
 ### Discovery Service (`:8761`)
 
 A single-node Eureka registry. Every business service registers on startup, and
 the gateway resolves `lb://` URIs through it. No peer replication is configured.
+
+Full document: [services/discovery-service.md](services/discovery-service.md).
 
 ---
 
@@ -79,7 +93,8 @@ keyword, category, price range, brand, processor, RAM, and storage. Exposes
 `/api/internal/**` endpoints that Order Service calls to validate and reduce
 stock.
 
-Database: `ecommerce_product`.
+Database: `ecommerce_product`. Full document:
+[services/product-service.md](services/product-service.md).
 
 ### Order Service (`:8083`) — `/order-manager/**`
 
@@ -92,7 +107,8 @@ Cart and order items embed a `ProductSnapshot` rather than referencing Product
 by foreign key — see
 [../architecture/design-decisions.md](../architecture/design-decisions.md#why-productsnapshot-embedded-instead-of-a-foreign-key-to-product).
 
-Database: `ecommerce_order`.
+Database: `ecommerce_order`. Full document:
+[services/order-service.md](services/order-service.md).
 
 ### Notification Service (`:8084`) — not exposed through the gateway
 
@@ -100,6 +116,8 @@ A RabbitMQ consumer (`notification-exchange` / `notification-routing-key`,
 `concurrentConsumers=3`) that sends transactional email through Gmail SMTP. It
 also exposes `POST /api/v1/notifications/sendMail` for direct invocation, though
 the normal path is asynchronous.
+
+Full document: [services/notification-service.md](services/notification-service.md).
 
 ---
 
@@ -114,7 +132,7 @@ the normal path is asynchronous.
 | Errors | `@RestControllerAdvice` global handler returning `APIResponse(message, status)` |
 | Identity | JWT cookie parsed manually by a per-service `AuthUtil`; no `SecurityContext` downstream |
 | API docs | springdoc-openapi, enabled in `dev`, disabled in `prod` |
-| Build | Multi-stage Dockerfile per service (OpenJDK 21 builder + runtime) |
+| Build | Multi-stage Dockerfile per service (OpenJDK 21 builder + runtime; notification-service is still on JDK 17) |
 
 ---
 
