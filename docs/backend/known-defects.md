@@ -324,6 +324,22 @@ one functional:
 - The spec **read** is not public, so an anonymous shopper browsing a laptop
   cannot load its processor, RAM, storage, display, or GPU.
 
+**Confirmed at runtime** (2026-08-24, seeded stack, both consequences reproduced
+against the gateway on `localhost:5173`):
+
+```
+GET  /product-manager/api/products/public/1/specifications   anonymous  → 401
+GET  /product-manager/api/products/public/1/specifications   any login  → 200
+POST /product-manager/api/products/admin/2/specifications    ROLE_SELLER → 200
+```
+
+The last line is the missing role check: a seller successfully wrote through the
+**admin** endpoint. Note that the frontend reaches it by accident — the
+specification modal is passed a hard-coded `isAdmin={true}` in
+`frontend/src/components/admin/products/AdminProducts.jsx`. The two bugs mask
+each other, so fixing this one alone will start returning `403` to sellers until
+that prop is fixed too.
+
 **Fix:** Re-map the controller to `/api` and its methods to
 `/admin/products/{productId}/specifications`,
 `/seller/products/{productId}/specifications`, and
