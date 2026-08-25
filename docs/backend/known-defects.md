@@ -53,8 +53,8 @@ the project is demonstrated or extended.
 | [SEC-02](#sec-02--user-administration-endpoints-are-fully-public) | Critical | Listing and deleting users sits under a public gateway path | user-service, gateway |
 | [SEC-03](#sec-03--payment-success-is-asserted-by-the-client) | Critical | No Stripe webhook; the browser declares whether it paid | order-service |
 | [SEC-04](#sec-04--the-jwt-signing-secret-is-committed-to-the-repository) | Critical | Shared HMAC secret is a literal in four tracked files | gateway, config-server |
-| [SEC-05](#sec-05--seller-product-endpoints-have-neither-a-role-check-nor-an-ownership-check) | High | Any logged-in user can edit or delete any product | product-service, gateway |
-| [SEC-06](#sec-06--the-specification-controller-sits-outside-the-gateways-path-scheme) | High | Spec writes unchecked; spec reads wrongly require a login | product-service, gateway |
+| [SEC-05](#sec-05--seller-product-endpoints-have-neither-a-role-check-nor-an-ownership-check) | High | Any *seller* can edit or delete any product — role half fixed 2026-08-25, ownership half open | product-service, gateway |
+| [SEC-06](#sec-06--the-specification-controller-sits-outside-the-gateways-path-scheme) | ~~High~~ | **Fixed 2026-08-25** — spec writes unchecked; spec reads wrongly required a login | product-service, gateway |
 | [SEC-07](#sec-07--get-carts-returns-every-users-cart) | High | Cart contents of all users readable by any account | order-service |
 | [SEC-08](#sec-08--order-status-can-be-changed-by-anyone-who-is-logged-in) | High | No ownership check on order status mutation | order-service |
 | [SEC-09](#sec-09--address-update-and-delete-do-not-verify-ownership) | High | Any user can modify or delete any address by id | user-service |
@@ -281,35 +281,42 @@ validation.
 (`updateProduct`, `deleteProduct`, `updateProductImage`),
 `backend/api-gateway/src/main/resources/application.yaml` (`role-mappings`)
 
-Two independent gaps compound:
+Two independent gaps compounded. **The first was fixed on 2026-08-25; the second
+is still open.**
 
-1. `/product-manager/api/seller/**` matches **no** gateway role mapping. The
-   gateway only requires a valid token.
-2. `updateProduct`, `deleteProduct`, and `updateProductImage` never compare
-   `product.sellerEmail` to `AuthUtil.loggedInEmail()`.
+1. ~~`/product-manager/api/seller/**` matches **no** gateway role mapping.~~
+   **Fixed.** The gateway now maps that pattern to `roles: [ROLE_SELLER]`. A
+   plain `ROLE_USER` account receives `403` from the gateway. Note this rule is
+   narrower than the `/order-manager/api/seller/**` rule, which also admits
+   `ROLE_ADMIN`; the seeded `admin` holds `ROLE_SELLER` too, so it is unaffected.
+2. **Still open.** `updateProduct`, `deleteProduct`, and `updateProductImage`
+   never compare `product.sellerEmail` to `AuthUtil.loggedInEmail()`.
 
 Each `/seller/...` handler calls the identical service method as its
 `/admin/...` twin, so the `seller` path segment is naming only.
 
-**Impact:** Any logged-in customer can create, rename, re-price, re-image, or
-delete any product in the catalogue.
+**Remaining impact:** Any account holding `ROLE_SELLER` can rename, re-price,
+re-image, or delete **any** product in the catalogue, including products created
+by other sellers. Since 2026-08-25 this also covers the specification endpoints,
+which moved under `/api/seller/products/...` (see `SEC-06`).
 
-**Fix:** Both halves are needed.
-- Add `- pattern: /product-manager/api/seller/**` with
-  `roles: [ROLE_ADMIN, ROLE_SELLER]` to the gateway, mirroring the order-service
-  rule that already exists.
-- Add an ownership guard in the three service methods, exempting `ROLE_ADMIN`.
+**Fix for the remaining half:** Add an ownership guard in the three service
+methods — and in `createOrUpdateSpecification` / `deleteSpecification` — exempting
+`ROLE_ADMIN`.
 
 ---
 
 ### SEC-06 — The specification controller sits outside the gateway's path scheme
 
+> **Fixed on 2026-08-25.** Kept here for the reproduction record; the "Fix"
+> paragraph below describes what was applied.
+
 **Location:** `backend/product-service/.../controller/ProductSpecificationController.java:14`
 
-The controller is mapped at `/api/products`, which puts `admin`, `seller`, and
+The controller was mapped at `/api/products`, which put `admin`, `seller`, and
 `public` in the **third** path segment:
 
-| Handler | Gateway path | Matched by |
+| Handler | Gateway path (before) | Matched by |
 |---|---|---|
 | `createOrUpdateSpecificationAdmin` | `/product-manager/api/products/admin/{id}/specifications` | nothing |
 | `createOrUpdateSpecificationSeller` | `/product-manager/api/products/seller/{id}/specifications` | nothing |
@@ -320,9 +327,9 @@ The controller is mapped at `/api/products`, which puts `admin`, `seller`, and
 match a third-segment `admin` or `public`. Two consequences, one security and
 one functional:
 
-- Spec **writes and deletes** carry no role check.
-- The spec **read** is not public, so an anonymous shopper browsing a laptop
-  cannot load its processor, RAM, storage, display, or GPU.
+- Spec **writes and deletes** carried no role check.
+- The spec **read** was not public, so an anonymous shopper browsing a laptop
+  could not load its processor, RAM, storage, display, or GPU.
 
 **Confirmed at runtime** (2026-08-24, seeded stack, both consequences reproduced
 against the gateway on `localhost:5173`):
@@ -334,17 +341,25 @@ POST /product-manager/api/products/admin/2/specifications    ROLE_SELLER → 200
 ```
 
 The last line is the missing role check: a seller successfully wrote through the
-**admin** endpoint. Note that the frontend reaches it by accident — the
-specification modal is passed a hard-coded `isAdmin={true}` in
-`frontend/src/components/admin/products/AdminProducts.jsx`. The two bugs mask
-each other, so fixing this one alone will start returning `403` to sellers until
-that prop is fixed too.
+**admin** endpoint. The frontend reached it by accident — the specification modal
+was passed a hard-coded `isAdmin={true}` in
+`frontend/src/components/admin/products/AdminProducts.jsx`, so a seller's browser
+built an admin URL. The two bugs masked each other, which is why the fix had to
+land on both sides at once.
 
-**Fix:** Re-map the controller to `/api` and its methods to
-`/admin/products/{productId}/specifications`,
-`/seller/products/{productId}/specifications`, and
-`/public/products/{productId}/specifications`. No gateway change is then needed.
-Coordinate the path change with the frontend.
+**Fix (applied 2026-08-25):** The controller moved to `@RequestMapping("/api")`
+with its handlers at `/{admin,seller,public}/products/{productId}/specifications`,
+putting the role segment where the gateway patterns match. The admin path is now
+covered by the existing `/product-manager/api/admin/**` rule, the public path by
+`/product-manager/api/public/**`, and the seller path by the new
+`/product-manager/api/seller/**` rule added under `SEC-05`. On the frontend,
+`AdminProducts.jsx` passes the real `isAdmin` derived from `user.roles`, and both
+`ProductSpecificationModal.jsx` and `ProductViewModal.jsx` use the new URLs.
+
+Two follow-ups this did **not** address: spec writes still have no ownership
+check (`SEC-05`, half two), and the modal previously read `product.productId` on
+a dashboard row that only carries `id`, so the "existing specification" prefill
+never ran — corrected in the same change set.
 
 ---
 
@@ -904,7 +919,8 @@ Ordered by risk removed per unit of effort, not by severity alone.
 - SEC-02: move the four user-admin handlers under `/api/admin/**` — the gateway
   rule already exists.
 - SEC-04: replace the four hardcoded secrets with `${JWT_SECRET}` and rotate.
-- SEC-05 (gateway half): add the `/product-manager/api/seller/**` role mapping.
+- ~~SEC-05 (gateway half): add the `/product-manager/api/seller/**` role
+  mapping.~~ Done 2026-08-25, together with SEC-06.
 
 **2 — Stop publishing internal ports**
 - SEC-10, SEC-11, SEC-12: remove host port bindings for product, order, user,

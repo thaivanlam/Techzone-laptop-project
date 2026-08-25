@@ -17,11 +17,11 @@ becomes `http://localhost:8082/api/auth/signin`.
 
 > **Role enforcement is narrower than the path names suggest.** The gateway
 > checks roles only on `/product-manager/api/admin/**`,
-> `/user-manager/api/admin/**`, `/order-manager/api/admin/**` (all `ROLE_ADMIN`)
-> and `/order-manager/api/seller/**` (`ROLE_ADMIN` or `ROLE_SELLER`). Access
-> levels marked below for other paths — the product `seller` paths, and the spec
-> paths under `/product-manager/api/products/...` — are **convention only**;
-> any authenticated user can reach them through the gateway. See
+> `/user-manager/api/admin/**`, `/order-manager/api/admin/**` (all `ROLE_ADMIN`),
+> `/product-manager/api/seller/**` (`ROLE_SELLER`) and
+> `/order-manager/api/seller/**` (`ROLE_ADMIN` or `ROLE_SELLER`). Access levels
+> marked below for paths outside those patterns are **convention only**; any
+> authenticated user can reach them through the gateway. See
 > [../architecture/security-model.md](../architecture/security-model.md#enforcement-gaps-worth-knowing).
 
 ---
@@ -99,11 +99,11 @@ any address by ID.
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| GET | `/product-manager/api/products/public/{productId}/specifications` | Public | Get a product's technical specifications |
-| POST | `/product-manager/api/products/admin/{productId}/specifications` | ADMIN | Create/update specifications |
-| POST | `/product-manager/api/products/seller/{productId}/specifications` | SELLER | Create/update specifications (seller) |
-| DELETE | `/product-manager/api/products/admin/{productId}/specifications` | ADMIN | Delete specifications |
-| DELETE | `/product-manager/api/products/seller/{productId}/specifications` | SELLER | Delete specifications (seller) |
+| GET | `/product-manager/api/public/products/{productId}/specifications` | Public | Get a product's technical specifications |
+| POST | `/product-manager/api/admin/products/{productId}/specifications` | ADMIN | Create/update specifications |
+| POST | `/product-manager/api/seller/products/{productId}/specifications` | SELLER | Create/update specifications (seller) |
+| DELETE | `/product-manager/api/admin/products/{productId}/specifications` | ADMIN | Delete specifications |
+| DELETE | `/product-manager/api/seller/products/{productId}/specifications` | SELLER | Delete specifications (seller) |
 
 ---
 

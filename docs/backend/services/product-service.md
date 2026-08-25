@@ -252,31 +252,32 @@ Paths are service-local. Prepend `/product-manager` for the gateway URL.
 | POST | `/internal/products/{productId}/reduce-stock` | 202 | **authenticated only** |
 
 Each `/seller/...` method delegates to exactly the same service call as its
-`/admin/...` twin. The distinction is naming only — and because
-`/product-manager/api/seller/**` matches no gateway role mapping, any logged-in
-customer can call them.
+`/admin/...` twin. The distinction is naming only — the gateway now requires
+`ROLE_SELLER` on `/product-manager/api/seller/**`, but the handlers themselves
+never compare `product.sellerEmail` to the caller, so one seller can still edit
+another seller's products (`SEC-05` in [../known-defects.md](../known-defects.md)).
 
-### Specifications — `ProductSpecificationController` (`/api/products`)
+### Specifications — `ProductSpecificationController` (`/api`)
 
 | Method | Path | Success | Access at gateway |
 |---|---|---|---|
-| POST | `/api/products/admin/{productId}/specifications` | 200 | **authenticated only** |
-| POST | `/api/products/seller/{productId}/specifications` | 200 | **authenticated only** |
-| GET | `/api/products/public/{productId}/specifications` | 200 | **authenticated only** |
-| DELETE | `/api/products/admin/{productId}/specifications` | 204 | **authenticated only** |
-| DELETE | `/api/products/seller/{productId}/specifications` | 204 | **authenticated only** |
+| POST | `/api/admin/products/{productId}/specifications` | 200 | `ROLE_ADMIN` |
+| POST | `/api/seller/products/{productId}/specifications` | 200 | `ROLE_SELLER` |
+| GET | `/api/public/products/{productId}/specifications` | 200 | public |
+| DELETE | `/api/admin/products/{productId}/specifications` | 204 | `ROLE_ADMIN` |
+| DELETE | `/api/seller/products/{productId}/specifications` | 204 | `ROLE_SELLER` |
 
-This controller's base path is `/api/products`, which puts `admin`, `seller`, and
-`public` in the *third* path segment. None of the gateway's patterns
-(`/product-manager/api/admin/**`, `/product-manager/api/public/**`) match. Two
-consequences:
+The controller's base path is `/api`, so the role segment (`admin`, `seller`,
+`public`) is the *second* path segment — the position the gateway's patterns
+match on. Until 2026-08-25 the base path was `/api/products`, which pushed that
+segment to third position and made every pattern miss: writes carried no role
+check, and the read endpoint was not public. See `SEC-06` in
+[../known-defects.md](../known-defects.md).
 
-- Write endpoints have **no role check**.
-- The read endpoint is **not public**, so an anonymous visitor browsing the
-  storefront cannot load a laptop's specifications.
-
-Moving the controller to `/api` and its methods to `/admin/products/{id}/...`,
-`/public/products/{id}/...` would bring it under the existing gateway rules.
+Both handler pairs still call the same `createOrUpdateSpecification` /
+`deleteSpecification` service methods, so the split is enforced entirely at the
+gateway. Neither checks `product.sellerEmail` against the caller, so a seller can
+still write specifications for another seller's product (`SEC-05`).
 
 ### Pagination
 

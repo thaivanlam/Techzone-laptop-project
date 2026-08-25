@@ -194,9 +194,14 @@ services use, so the frontend must handle two error shapes.
 | Pattern | Required roles |
 |---|---|
 | `/product-manager/api/admin/**` | `ROLE_ADMIN` |
+| `/product-manager/api/seller/**` | `ROLE_SELLER` |
 | `/user-manager/api/admin/**` | `ROLE_ADMIN` |
 | `/order-manager/api/admin/**` | `ROLE_ADMIN` |
 | `/order-manager/api/seller/**` | `ROLE_ADMIN`, `ROLE_SELLER` |
+
+`resolveRequiredRoles` unions the roles of *every* matching pattern and passes if
+the token holds any one of them, so overlapping rules widen access rather than
+narrow it.
 
 Everything not listed as public and not listed here needs a **valid token but no
 particular role**. The consequences are covered in
@@ -334,17 +339,16 @@ access can mint a valid admin token. See
 
 ### 3. Role mappings do not cover every privileged path
 
-- `/product-manager/api/seller/**` (product create/update/delete and image upload
-  for sellers) matches no role mapping — any authenticated user can call it.
-- `ProductSpecificationController` is mapped at `/api/products/**`, producing
-  gateway paths like `/product-manager/api/products/admin/{id}/specifications`.
-  That does not match `/product-manager/api/admin/**`, so it is likewise
-  authenticated-but-unchecked.
-- The same prefix mismatch makes
-  `/product-manager/api/products/public/{id}/specifications` **non-public**, so
-  an anonymous visitor cannot read a laptop's specs.
 - `/user-manager/api/auth/**` is public, and User Service's customer/seller
   listing and deletion endpoints live under it.
+- Role checks are path-based only. The gateway knows *which* role a caller holds,
+  never *which rows* they own, so ownership guards must live in the services.
+
+Two entries used to sit here and were closed on 2026-08-25:
+`/product-manager/api/seller/**` now requires `ROLE_SELLER`, and
+`ProductSpecificationController` moved from `/api/products/{role}/...` to
+`/api/{role}/products/...` so the role segment lands where the patterns match.
+The move also restored anonymous reads of a laptop's specifications.
 
 ### 4. `/order-manager/api/internal/**` is a public path
 

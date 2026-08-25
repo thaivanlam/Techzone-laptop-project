@@ -94,9 +94,16 @@ The gateway classifies each incoming path using `application.yaml` in
 | Pattern | Required role |
 |---|---|
 | `/product-manager/api/admin/**` | `ROLE_ADMIN` |
+| `/product-manager/api/seller/**` | `ROLE_SELLER` |
 | `/user-manager/api/admin/**` | `ROLE_ADMIN` |
 | `/order-manager/api/admin/**` | `ROLE_ADMIN` |
 | `/order-manager/api/seller/**` | `ROLE_ADMIN` or `ROLE_SELLER` |
+
+The two `seller` rules differ on purpose-by-accident, not by design: the product
+rule admits `ROLE_SELLER` only. The seeded `admin` account holds all three roles,
+so it still passes; an admin holding *only* `ROLE_ADMIN` would get `403` on
+`/product-manager/api/seller/**`. The frontend never routes admins there — it
+picks the `admin` endpoint whenever `roles` contains `ROLE_ADMIN`.
 
 Everything else that is not public requires a **valid JWT but no specific
 role** — any authenticated user may reach it.
@@ -108,11 +115,11 @@ These follow directly from the rules above and are real, not hypothetical:
 1. **Admin user operations are public.** Listing and deleting customers and
    sellers live under `/user-manager/api/auth/**`, which is a public path. No
    role check occurs at the gateway or in Spring Security.
-2. **Seller product paths are not role-checked.** Paths such as
-   `/product-manager/api/seller/products/{id}` and the specification endpoints
-   under `/product-manager/api/products/{admin,seller}/...` match no role
-   pattern. Any authenticated user can call them; the `admin`/`seller` segment
-   is naming convention only.
+2. **Seller product paths are role-checked but not ownership-checked.** Since
+   2026-08-25 `/product-manager/api/seller/**` requires `ROLE_SELLER`, so a plain
+   customer can no longer create, edit, or delete products. The handlers still
+   never compare `product.sellerEmail` to the caller, so any seller can act on
+   any other seller's product.
 3. **Address ownership is not verified.** `updateAddress` and `deleteAddress`
    act on any address ID without checking that the caller owns it.
 4. **Spring Security is effectively disabled** in user-service — `SecurityConfig`
