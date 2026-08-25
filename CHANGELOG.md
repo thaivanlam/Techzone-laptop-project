@@ -54,9 +54,34 @@ No version has been tagged yet. Everything below ships in the first release.
 - `docs/architecture/design-decisions.md` is now an index onto the ADRs; the
   decisions themselves moved into `docs/architecture/decisions/`. Documents that
   deep-linked to its headings now link to the corresponding ADR.
+- **Breaking for API consumers.** The product specification endpoints moved from
+  `/product-manager/api/products/{role}/{productId}/specifications` to
+  `/product-manager/api/{role}/products/{productId}/specifications`, so the role
+  segment matches the scheme every other endpoint follows. The old paths are
+  gone, not aliased.
+
+### Fixed
+
+- Product specifications now load for signed-out visitors. The read endpoint sat
+  outside the gateway's public-path pattern, so browsing a laptop anonymously
+  returned `401` instead of its processor, RAM, storage, display, and GPU.
+- The specification modal prefills the existing values again. It read a field the
+  dashboard rows do not carry, so editing a product that already had
+  specifications opened an empty form.
 
 ### Security
 
+- Product specification writes and deletes are role-checked at the gateway. The
+  controller's base path put the `admin`/`seller`/`public` segment one position
+  too deep for any gateway pattern to match, so the endpoints were reachable by
+  any signed-in account; a seller could write through the admin endpoint. The
+  admin panel compounded this by passing a hard-coded "is admin" flag to the
+  modal for every user.
+- Seller product endpoints (`/product-manager/api/seller/**`) now require
+  `ROLE_SELLER`. Previously any signed-in customer could create, rename,
+  re-price, re-image, or delete any product. Sellers still are not checked
+  against product ownership — see `SEC-05` in
+  [`docs/backend/known-defects.md`](docs/backend/known-defects.md).
 - `.env` is excluded from version control from the initial commit onward. No
   real credential has entered this repository's history; secrets are supplied
   locally from `.env.example` and documented by variable name only.
