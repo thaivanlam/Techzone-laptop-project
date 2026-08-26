@@ -16,11 +16,22 @@ originates in either submodule is mirrored and maintained here.
 
 ## Index
 
+### Requirements
+| Document | What it covers |
+|---|---|
+| [requirements/srs.md](requirements/srs.md) | Software Requirements Specification: business goals, user classes, every functional and non-functional requirement with its delivery status, constraints, scope boundaries |
+| [requirements/user-stories.md](requirements/user-stories.md) | The same requirements as stories per role, with acceptance criteria, epics, and the traceability matrix onto test cases |
+
 ### Architecture
 | Document | What it covers |
 |---|---|
 | [architecture/system-overview.md](architecture/system-overview.md) | Services, ports, end-to-end request flow, order placement walkthrough |
 | [architecture/security-model.md](architecture/security-model.md) | JWT issuance, cookie auth, gateway role enforcement, role hierarchy |
+| [architecture/data-model.md](architecture/data-model.md) | The physical schema: three databases, thirteen tables, ER diagrams, id generation, cross-boundary references, integrity gaps |
+| [architecture/uml-diagrams.md](architecture/uml-diagrams.md) | Index of the UML set: which diagram answers which question, how to read them, and what they do not show |
+| [architecture/uml-use-cases.md](architecture/uml-use-cases.md) | Use case diagram, actors, the use-case-to-requirement map, and intended versus actual access |
+| [architecture/uml-structure.md](architecture/uml-structure.md) | Component, deployment, domain class and backend layering diagrams, with the connector inventory |
+| [architecture/uml-behaviour.md](architecture/uml-behaviour.md) | Four sequence diagrams, the order state machine, and the faceted-search activity flow |
 | [architecture/decisions/](architecture/decisions/) | Architecture Decision Records — one file per platform decision, with status and trade-offs |
 | [architecture/design-decisions.md](architecture/design-decisions.md) | Index mapping "why is X the way it is?" to the ADR that answers it |
 
@@ -44,18 +55,49 @@ originates in either submodule is mirrored and maintained here.
 | [frontend/overview.md](frontend/overview.md) | Stack, project structure, routing, state management, key features |
 | [frontend/design-decisions.md](frontend/design-decisions.md) | Frontend trade-offs (Redux style, MUI + Tailwind, cart strategy, …) |
 
+### Development
+| Document | What it covers |
+|---|---|
+| [development/developer-guide.md](development/developer-guide.md) | Setup, the submodule rule, everyday commands, backend and frontend conventions, adding an endpoint or a screen, the algorithms worth knowing, landing a change |
+
+### Quality
+| Document | What it covers |
+|---|---|
+| [quality/test-plan.md](quality/test-plan.md) | The QA plan: objectives, the four levels and what each covers, environments, tooling, how to run every suite, entry and exit criteria, risk-based priorities, the characterisation-test convention, and what is deliberately not covered |
+| [quality/test-cases.md](quality/test-cases.md) | 97 test cases with steps, expected results and traceability to requirements |
+| [quality/test-report.md](quality/test-report.md) | Validation report: runs recorded, suite inventory, coverage gaps, what the suites found on their own, release readiness |
+| [quality/uat-checklist.md](quality/uat-checklist.md) | The manual acceptance pass: interface, payment form, email, responsiveness, accessibility, with a sign-off block |
+| [quality/bug-taxonomy.md](quality/bug-taxonomy.md) | The twelve defect classes, each with the instance found here, and a classification of every entry in the defect register |
+
 ### Operations
 | Document | What it covers |
 |---|---|
 | [operations/running-locally.md](operations/running-locally.md) | The three startup modes, environment variables, endpoints, seeded users |
 | [operations/docker-setup.md](operations/docker-setup.md) | Compose file layout, container topology, frontend image, nginx API proxy |
 | [operations/database-seeding.md](operations/database-seeding.md) | Entrypoint database creation, the one-shot catalogue seeder, `product_seq`, verification procedure |
+| [operations/configuration-reference.md](operations/configuration-reference.md) | Every environment variable, Config Server property and gateway rule, with when a change takes effect |
+| [operations/troubleshooting-runbook.md](operations/troubleshooting-runbook.md) | Symptom index and step-by-step recovery runbooks, health checks, backup and restore, what to collect when escalating |
+
+### End-User Guides
+| Document | What it covers |
+|---|---|
+| [user-guide/installation.md](user-guide/installation.md) | Installing and starting the platform, for a non-developer: prerequisites, keys, settings, verification |
+| [user-guide/customer-guide.md](user-guide/customer-guide.md) | Shopping: account, search and filters, basket, checkout with test cards, orders, addresses |
+| [user-guide/seller-guide.md](user-guide/seller-guide.md) | Listing products: fields, photos, specifications, stock, fulfilling orders |
+| [user-guide/admin-guide.md](user-guide/admin-guide.md) | Running the shop: dashboard, categories, products, orders, accounts, and the security caveats |
+| [user-guide/faq.md](user-guide/faq.md) | Common questions by audience, with the known quirks explained |
 
 ### Development Log
 | Document | What it covers |
 |---|---|
 | [dev-log/README.md](dev-log/README.md) | Entry format, why the log is kept, what must never be written into it |
 | [dev-log/2026-08.md](dev-log/2026-08.md) | August 2026: superproject setup, docs consolidation, Compose stack, Stripe build-time key fix |
+
+### Assets
+| Path | What it holds |
+|---|---|
+| [assets/banner.svg](assets/banner.svg) | Header banner rendered at the top of the root [`README.md`](../README.md) |
+| [assets/screenshots/](assets/screenshots/) | Interface captures for the root README's screenshot grid (currently empty; the grid stays commented out until they exist) |
 
 Release-level history lives in [`CHANGELOG.md`](../CHANGELOG.md) at the
 repository root, not in this folder.
@@ -108,7 +150,18 @@ repository root, not in this folder.
 | `backend/services/user-service.md` | `backend/user-service/docs/ARCHITECTURE.md` |
 | `backend/services/api-gateway.md`, `backend/services/config-server.md`, `backend/services/discovery-service.md`, `backend/services/product-service.md`, `backend/services/order-service.md`, `backend/services/notification-service.md` | Written here — no upstream document exists; derived from the module sources |
 | `backend/known-defects.md` | Written here — derived from a source audit of the backend modules |
+| `quality/bug-taxonomy.md` | Written here — derived from `backend/known-defects.md` and the dev log; no upstream equivalent |
+| `quality/test-plan.md`, `quality/test-cases.md`, `quality/test-report.md`, `quality/uat-checklist.md` | Written here — describe the test suites in `backend/*/src/test/` and in `tests/`, and record their runs; no upstream equivalent |
+| `requirements/srs.md`, `requirements/user-stories.md` | Written here — derived from the delivered behaviour, the API reference and the defect register; no upstream equivalent |
+| `architecture/data-model.md` | Written here — derived from the JPA entities, `backend/init-db/` and `backend/seed-db/` |
+| `architecture/uml-diagrams.md`, `architecture/uml-use-cases.md`, `architecture/uml-structure.md`, `architecture/uml-behaviour.md` | Written here — derived from the controllers, services, entities, Compose files and `frontend/src/App.jsx` |
+| `development/developer-guide.md` | Written here — the working conventions of this repository; no upstream equivalent |
+| `operations/configuration-reference.md` | Written here — consolidates `.env.example`, `config-server/…/config/*.yml` and the gateway's `application.yaml` |
+| `operations/troubleshooting-runbook.md` | Written here — operator procedures for the Compose stack; no upstream equivalent |
+| `user-guide/*.md` | Written here — end-user documentation for the delivered interface; no upstream equivalent |
 | `frontend/overview.md`, `frontend/design-decisions.md` | `frontend/README.md` |
 | `operations/docker-setup.md` | Written here — describes the superproject's own `docker-compose.yml` and `frontend/Dockerfile` |
 | `operations/database-seeding.md` | Written here — describes `backend/init-db/` and `backend/seed-db/` |
+| *(not mirrored)* `backend/product-service/images/seed/CREDITS.md` | Lives upstream on purpose. It is the CC BY / CC BY-SA attribution for the seed catalogue photographs, and those licences require the credit to travel **with** the files; a copy here would be a second thing to keep in sync. `operations/database-seeding.md` links to it. |
+| `assets/*` | Written here — visual assets for the root `README.md`; no upstream equivalent |
 | `dev-log/*.md` | Written here — a record of this repository's own work sessions; no upstream equivalent |

@@ -39,16 +39,33 @@ documentation from **both** submodules.
 8. **Update the changelog on release.** [`CHANGELOG.md`](CHANGELOG.md) records
    user-visible changes per version. Add to `[Unreleased]` as work lands; move
    those entries into a version section when a release is tagged.
+9. **Keep the tests with the code.** Backend behaviour changes come with a unit
+   or integration test in the same module
+   (`backend/<service>/src/test/java/.../unit|integration/`); anything that
+   crosses a service boundary or changes what a user can do comes with a system
+   or acceptance test in [`tests/`](tests). Several tests deliberately pin
+   *current, defective* behaviour and name the defect ID — fixing that defect
+   means updating its test in the same change set, never deleting it. The map is
+   in [docs/quality/test-plan.md](docs/quality/test-plan.md).
 
 ## Documentation Map
 
 | Area | Document |
 |---|---|
+| What the system must do, and its delivery status | [docs/requirements/srs.md](docs/requirements/srs.md) |
+| Requirements as user stories, with acceptance criteria | [docs/requirements/user-stories.md](docs/requirements/user-stories.md) |
 | Services, ports, request flow | [docs/architecture/system-overview.md](docs/architecture/system-overview.md) |
 | JWT, roles, gateway enforcement | [docs/architecture/security-model.md](docs/architecture/security-model.md) |
+| Database schema, ER diagrams, integrity gaps | [docs/architecture/data-model.md](docs/architecture/data-model.md) |
+| Use case, sequence, class, deployment diagrams | [docs/architecture/uml-diagrams.md](docs/architecture/uml-diagrams.md) |
 | Platform technology trade-offs | [docs/architecture/decisions/](docs/architecture/decisions/) (ADRs) |
+| Working on the code: setup, conventions, workflow | [docs/development/developer-guide.md](docs/development/developer-guide.md) |
 | Backend modules and conventions | [docs/backend/overview.md](docs/backend/overview.md) |
 | All HTTP endpoints | [docs/backend/api-reference.md](docs/backend/api-reference.md) |
+| Verified defects, and the classes they fall into | [docs/backend/known-defects.md](docs/backend/known-defects.md), [docs/quality/bug-taxonomy.md](docs/quality/bug-taxonomy.md) |
+| How the system is tested, at four levels | [docs/quality/test-plan.md](docs/quality/test-plan.md), [tests/README.md](tests/README.md) |
+| Manual acceptance pass | [docs/quality/uat-checklist.md](docs/quality/uat-checklist.md) |
+| QA plan, test cases, last validation run | [docs/quality/test-plan.md](docs/quality/test-plan.md), [docs/quality/test-cases.md](docs/quality/test-cases.md), [docs/quality/test-report.md](docs/quality/test-report.md) |
 | API Gateway internals | [docs/backend/services/api-gateway.md](docs/backend/services/api-gateway.md) |
 | Config Server internals | [docs/backend/services/config-server.md](docs/backend/services/config-server.md) |
 | Discovery Service internals | [docs/backend/services/discovery-service.md](docs/backend/services/discovery-service.md) |
@@ -59,6 +76,9 @@ documentation from **both** submodules.
 | Frontend stack and structure | [docs/frontend/overview.md](docs/frontend/overview.md) |
 | Frontend trade-offs | [docs/frontend/design-decisions.md](docs/frontend/design-decisions.md) |
 | Startup, env vars, seeded users | [docs/operations/running-locally.md](docs/operations/running-locally.md) |
+| Every config key, and when a change takes effect | [docs/operations/configuration-reference.md](docs/operations/configuration-reference.md) |
+| Diagnosing and recovering a broken stack | [docs/operations/troubleshooting-runbook.md](docs/operations/troubleshooting-runbook.md) |
+| Guides for customers, sellers, admins, installers | [docs/user-guide/](docs/user-guide/) |
 | How each change came about | [docs/dev-log/](docs/dev-log) |
 | Released, user-visible changes | [CHANGELOG.md](CHANGELOG.md) |
 
