@@ -11,6 +11,10 @@ Three supported modes:
 Container topology, image internals, and the nginx proxy are documented in
 [docker-setup.md](docker-setup.md).
 
+Secret-free `.env` templates for each mode live in [`env/`](../../env/) at the
+repo root — copy the pair for the mode you want instead of hand-editing
+`.env.example`. See [`env/README.md`](../../env/README.md).
+
 Related documents: [../backend/overview.md](../backend/overview.md) ·
 [../frontend/overview.md](../frontend/overview.md)
 
@@ -117,8 +121,20 @@ play: `FRONTEND_URL` in `backend/.env` must match the origin Vite serves
 ## Mode 3 — Hybrid Dev
 
 Leave `COMPOSE_PROFILES` empty and set `SPRING_PROFILES_ACTIVE=dev` in
-`backend/.env`. Compose then starts infrastructure only, and business services
-run from the IDE or Maven against `localhost`.
+`backend/.env` (or copy `env/mode3-hybrid-dev.backend.env` and
+`env/mode3-hybrid-dev.frontend.env`). Compose then starts infrastructure only,
+and business services run from the IDE or Maven against `localhost`.
+
+> The `*-dev.yml` files in `backend/config-server/src/main/resources/config/`
+> hardcode `jdbc:mysql://localhost:3306/...` — they do not read `MYSQL_PORT`.
+> If a native `mysqld` already holds port 3306 on the host, stop it before
+> starting the infra containers (Windows: `Stop-Service -Name MySQL80`, run as
+> Administrator) — the `MYSQL_PORT` override that helps in Mode 1 does not
+> apply here.
+
+Step-by-step VS Code setup (extensions, JDK runtime mapping, a ready-to-copy
+`launch.json` for all five services) is in
+[ide-debug-setup.md](../development/ide-debug-setup.md).
 
 ```bash
 cd backend

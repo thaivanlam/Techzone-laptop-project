@@ -45,6 +45,13 @@ No version has been tagged yet. Everything below ships in the first release.
   `product_seq` handling the seeder depends on.
 - [`docs/dev-log/`](docs/dev-log/) — a monthly development log recording how
   each change came about, with its redaction rules.
+- [`env/`](env/) — secret-free `.env` templates, one pair per startup mode, so
+  switching between the three modes in
+  [`docs/operations/running-locally.md`](docs/operations/running-locally.md)
+  no longer means hand-editing a shared `.env`.
+- [`docs/development/ide-debug-setup.md`](docs/development/ide-debug-setup.md)
+  — VS Code setup for running the five business services with a debugger in
+  Mode 3 (hybrid dev), including a ready-to-copy `launch.json`.
 - [`docs/architecture/decisions/`](docs/architecture/decisions/) — Architecture
   Decision Records, one numbered file per platform decision, each with a status
   and its trade-offs, plus a template for recording new ones.

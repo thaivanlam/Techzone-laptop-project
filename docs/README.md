@@ -59,6 +59,7 @@ originates in either submodule is mirrored and maintained here.
 | Document | What it covers |
 |---|---|
 | [development/developer-guide.md](development/developer-guide.md) | Setup, the submodule rule, everyday commands, backend and frontend conventions, adding an endpoint or a screen, the algorithms worth knowing, landing a change |
+| [development/ide-debug-setup.md](development/ide-debug-setup.md) | Running the five business services from VS Code with a debugger in Mode 3 (hybrid dev): env templates, JDK runtime mapping, `launch.json` |
 
 ### Quality
 | Document | What it covers |
@@ -156,6 +157,7 @@ repository root, not in this folder.
 | `architecture/data-model.md` | Written here — derived from the JPA entities, `backend/init-db/` and `backend/seed-db/` |
 | `architecture/uml-diagrams.md`, `architecture/uml-use-cases.md`, `architecture/uml-structure.md`, `architecture/uml-behaviour.md` | Written here — derived from the controllers, services, entities, Compose files and `frontend/src/App.jsx` |
 | `development/developer-guide.md` | Written here — the working conventions of this repository; no upstream equivalent |
+| `development/ide-debug-setup.md` | Written here — no upstream equivalent |
 | `operations/configuration-reference.md` | Written here — consolidates `.env.example`, `config-server/…/config/*.yml` and the gateway's `application.yaml` |
 | `operations/troubleshooting-runbook.md` | Written here — operator procedures for the Compose stack; no upstream equivalent |
 | `user-guide/*.md` | Written here — end-user documentation for the delivered interface; no upstream equivalent |

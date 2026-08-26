@@ -60,6 +60,7 @@ documentation from **both** submodules.
 | Use case, sequence, class, deployment diagrams | [docs/architecture/uml-diagrams.md](docs/architecture/uml-diagrams.md) |
 | Platform technology trade-offs | [docs/architecture/decisions/](docs/architecture/decisions/) (ADRs) |
 | Working on the code: setup, conventions, workflow | [docs/development/developer-guide.md](docs/development/developer-guide.md) |
+| Running services from VS Code with a debugger (Mode 3 hybrid dev) | [docs/development/ide-debug-setup.md](docs/development/ide-debug-setup.md) |
 | Backend modules and conventions | [docs/backend/overview.md](docs/backend/overview.md) |
 | All HTTP endpoints | [docs/backend/api-reference.md](docs/backend/api-reference.md) |
 | Verified defects, and the classes they fall into | [docs/backend/known-defects.md](docs/backend/known-defects.md), [docs/quality/bug-taxonomy.md](docs/quality/bug-taxonomy.md) |
