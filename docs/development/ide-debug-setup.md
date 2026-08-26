@@ -92,7 +92,16 @@ your own `.vscode/settings.json`:
 ## Step 5 — Add the launch configurations
 
 Create `.vscode/launch.json` with one configuration per service, each on the
-`dev` Spring profile, plus a compound to start all five together:
+`dev` Spring profile, plus a compound to start all five together. Every
+configuration sets `cwd` explicitly to `${workspaceFolder}/backend` —
+`${workspaceFolder}` here is the **superproject root** (this repo's top-level
+folder, the one containing `backend/` and `frontend/` as subfolders), not
+`backend/` itself. Without that `cwd`, a Java debug config with no `cwd`
+launches with the superproject root as its working directory, and
+`product-service` cannot find its image folder: `ImagePathUtils` only knows
+how to recover when the process starts from `backend/` (one level above
+`product-service/`), not from the superproject root (two levels above). The
+symptom is every product image 404ing while the catalogue itself loads fine:
 
 ```json
 {
@@ -104,6 +113,7 @@ Create `.vscode/launch.json` with one configuration per service, each on the
       "request": "launch",
       "mainClass": "com.ecommerce.user_service.UserServiceApplication",
       "projectName": "user-service",
+      "cwd": "${workspaceFolder}/backend",
       "vmArgs": "-Dspring.profiles.active=dev"
     },
     {
@@ -112,6 +122,7 @@ Create `.vscode/launch.json` with one configuration per service, each on the
       "request": "launch",
       "mainClass": "com.ecommerce.product_service.ProductServiceApplication",
       "projectName": "product-service",
+      "cwd": "${workspaceFolder}/backend",
       "vmArgs": "-Dspring.profiles.active=dev"
     },
     {
@@ -120,6 +131,7 @@ Create `.vscode/launch.json` with one configuration per service, each on the
       "request": "launch",
       "mainClass": "com.ecommerce.order_service.OrderServiceApplication",
       "projectName": "order-service",
+      "cwd": "${workspaceFolder}/backend",
       "vmArgs": "-Dspring.profiles.active=dev"
     },
     {
@@ -128,6 +140,7 @@ Create `.vscode/launch.json` with one configuration per service, each on the
       "request": "launch",
       "mainClass": "vn.vti.dtn2504.notificationservice.NotificationServiceApplication",
       "projectName": "notification-service",
+      "cwd": "${workspaceFolder}/backend",
       "vmArgs": "-Dspring.profiles.active=dev"
     },
     {
@@ -136,6 +149,7 @@ Create `.vscode/launch.json` with one configuration per service, each on the
       "request": "launch",
       "mainClass": "com.ecommerce.api_gateway.ApiGatewayApplication",
       "projectName": "api-gateway",
+      "cwd": "${workspaceFolder}/backend",
       "vmArgs": "-Dspring.profiles.active=dev"
     }
   ],
@@ -158,6 +172,11 @@ Create `.vscode/launch.json` with one configuration per service, each on the
 `config-server` and `discovery-service` are deliberately left out — they run
 in Docker in this mode.
 
+Only `product-service` actually reads from disk relative to its working
+directory (product images); the other four services get `cwd` for
+consistency, so none of them silently depends on wherever VS Code happens to
+default to.
+
 ## Step 6 — Run
 
 Open **Run and Debug** (`Ctrl+Shift+D`), pick a configuration — or the "All
@@ -173,6 +192,44 @@ npm install
 npm run dev
 ```
 
+## Step 8 — Seed the catalogue
+
+`dev` uses its own per-service database
+(`laptop_ecommerce_graduation_project_product_service`, etc. — see
+[running-locally.md](../operations/running-locally.md#mode-3--hybrid-dev)),
+not the `ecommerce_product` schema the demo seeder targets by default, so a
+fresh Mode 3 stack has zero products even with the `seed` profile on. Point
+the same seeder at the `dev` schemas instead, from `backend/`, once
+`product-service` has started at least once (it needs to have created its
+tables):
+
+```bash
+docker compose --profile seed run --rm \
+  -e PRODUCT_DB=laptop_ecommerce_graduation_project_product_service \
+  -e USER_DB=laptop_ecommerce_graduation_project_user_service \
+  db-seed
+```
+
+Full mechanics — what this loads, the `product_seq` id-collision gotcha, how
+to reset and re-seed — are in
+[database-seeding.md](../operations/database-seeding.md#seeding-under-the-dev-profile-mode-3).
+Safe to re-run: it skips itself once the catalogue holds any product.
+
+## Step 9 — Verify
+
+```bash
+curl -s "http://localhost:8080/product-manager/api/public/products?pageSize=1"
+curl -s -o /dev/null -w "%{http_code} %{content_type}\n" \
+  "http://localhost:8080/product-manager/images/seed/asus-rog-strix-g16.jpg"
+```
+
+Expect a `200` with one product, and `200 image/jpeg` for the image. A `200`
+with an empty product list means Step 8 has not run yet; a `404` on the image
+with products present means Step 5's `cwd` did not take effect — restart the
+`product-service (dev)` debug session (stopping and pressing `F5` again isn't
+enough to pick up a `launch.json` edit if VS Code cached the old config; use
+the Restart button, or fully stop then start).
+
 ---
 
 ## Endpoints
@@ -186,10 +243,12 @@ General Compose issues (port conflicts, health checks, container name
 collisions) are covered in
 [troubleshooting-runbook.md](../operations/troubleshooting-runbook.md) and
 the troubleshooting table in
-[running-locally.md](../operations/running-locally.md#troubleshooting). Two
-issues specific to this setup:
+[running-locally.md](../operations/running-locally.md#troubleshooting). Issues
+specific to this setup:
 
 | Symptom | Cause |
 |---|---|
 | `mysql` container fails to start / `bind: address already in use` on 3306 | A native `mysqld` holds 3306 — see [Step 3](#step-3--free-port-3306-if-needed) |
 | A service fails to start from VS Code with an "unsupported class file version" or similar JDK error | `java.configuration.runtimes` does not have an entry covering that module's `java.version` — see [Step 4](#step-4--map-jdk-runtimes) |
+| Products load but every product image 404s | `product-service (dev)` launched without `cwd` set to `${workspaceFolder}/backend` — see [Step 5](#step-5--add-the-launch-configurations) |
+| The shop is empty, `db-seed` never ran or logs "already holds 0" nothing | `dev` uses a different schema than the seeder's default — see [Step 8](#step-8--seed-the-catalogue) |
