@@ -10,6 +10,7 @@ built for the graduation thesis <i>“Laptop E-commerce Platform Using Microserv
 
 <p>
   <a href="#-quick-start"><b>Quick Start</b></a> ·
+  <a href="#-screenshots"><b>Screenshots</b></a> ·
   <a href="#-architecture"><b>Architecture</b></a> ·
   <a href="#-tech-stack"><b>Tech Stack</b></a> ·
   <a href="docs/README.md"><b>Documentation</b></a> ·
@@ -39,6 +40,50 @@ built for the graduation thesis <i>“Laptop E-commerce Platform Using Microserv
 | 📊 | **Admin dashboard** with Chart.js analytics, MUI DataGrid CRUD, and image upload | [frontend/overview.md](docs/frontend/overview.md) |
 | 🐳 | **One command to run everything** — SPA and API served from a single origin | [docker-setup.md](docs/operations/docker-setup.md) |
 | 📚 | **Documentation kept with the code** — ADRs, defect register, development log | [`docs/`](docs) |
+
+---
+
+## 🖼 Screenshots
+
+<div align="center">
+  <img src="docs/assets/screenshots/home.png" alt="TechZone home page with the banner carousel and feature strip" width="100%">
+  <br><sub><b>Home</b> — Swiper banner carousel, feature strip, and featured products</sub>
+</div>
+
+<br>
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/storefront.png" alt="Product catalog with search, category and price-range filters" width="100%"><br>
+      <b>🛍 Catalog</b><br><sub>Search, category and price-range filters, paged results</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/product-detail.png" alt="Product modal showing SKU, stock and technical specifications" width="100%"><br>
+      <b>💻 Product detail</b><br><sub>SKU, stock state and technical specifications</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/cart.png" alt="Shopping cart with quantity controls and order summary" width="100%"><br>
+      <b>🛒 Cart</b><br><sub>Quantity controls, discounts and running order summary</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/checkout.png" alt="Checkout payment step with Stripe Elements card form" width="100%"><br>
+      <b>💳 Checkout</b><br><sub>Four-step flow ending in Stripe Elements</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/admin-dashboard.png" alt="Admin dashboard with KPI cards" width="100%"><br>
+      <b>📊 Admin dashboard</b><br><sub>Revenue, orders, catalogue and customer KPIs</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/admin-charts.png" alt="Admin analytics charts built with Chart.js" width="100%"><br>
+      <b>📈 Analytics</b><br><sub>Chart.js line, doughnut and bar breakdowns</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -366,39 +411,3 @@ Distributed under the **GNU Affero General Public License v3.0** — see
 <sub>Built as the graduation thesis <i>“Laptop E-commerce Platform Using Microservices Architecture”</i></sub>
 
 </div>
-
-<!--
-  📸 SCREENSHOTS / DEMO GIF — ready to enable, hidden until the images exist.
-  Save captures into docs/assets/screenshots/ under the names below, then move
-  this block above "Highlights" and delete the two comment markers.
-
-## 🖼 Screenshots
-
-<table>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/assets/screenshots/storefront.png" alt="Storefront with faceted laptop filters" width="100%"><br>
-      <b>🛍 Storefront</b><br><sub>Faceted catalog search</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/assets/screenshots/product-detail.png" alt="Product detail with technical specifications" width="100%"><br>
-      <b>💻 Product detail</b><br><sub>Technical specifications</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/assets/screenshots/checkout.png" alt="Stripe checkout step" width="100%"><br>
-      <b>💳 Checkout</b><br><sub>Stripe Elements payment</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/assets/screenshots/admin-dashboard.png" alt="Admin analytics dashboard" width="100%"><br>
-      <b>📊 Admin dashboard</b><br><sub>Chart.js analytics</sub>
-    </td>
-  </tr>
-</table>
-
-<div align="center">
-  <img src="docs/assets/screenshots/demo.gif" alt="End-to-end demo: browse, add to cart, pay, receive the confirmation email" width="80%">
-  <br><sub>Browse → cart → Stripe payment → confirmation email</sub>
-</div>
--->
