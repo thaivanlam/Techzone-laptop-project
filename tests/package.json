@@ -1,0 +1,17 @@
+{
+  "name": "techzone-e2e-tests",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Front-end unit tests plus system and acceptance tests for the TechZone platform. The system and acceptance suites run against a live stack through the API Gateway. No third-party dependencies: the Node built-in test runner and fetch are all that is used.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "npm run test:frontend && npm run test:system && npm run test:acceptance",
+    "test:frontend": "node --test \"frontend/*.test.js\"",
+    "test:system": "node --test --test-concurrency=1 \"system/*.test.js\"",
+    "test:acceptance": "node --test --test-concurrency=1 \"acceptance/*.test.js\"",
+    "preflight": "node lib/preflight.js"
+  }
+}
