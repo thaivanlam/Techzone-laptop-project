@@ -97,7 +97,7 @@ originates in either submodule is mirrored and maintained here.
 | Path | What it holds |
 |---|---|
 | [assets/banner.svg](assets/banner.svg) | Header banner rendered at the top of the root [`README.md`](../README.md) |
-| [assets/screenshots/](assets/screenshots/) | Interface captures for the root README's screenshot grid (currently empty; the grid stays commented out until they exist) |
+| [assets/screenshots/](assets/screenshots/) | Seven interface captures used by the root README's screenshot grid, taken against the running stack at 1440x900 |
 
 Release-level history lives in [`CHANGELOG.md`](../CHANGELOG.md) at the
 repository root, not in this folder.

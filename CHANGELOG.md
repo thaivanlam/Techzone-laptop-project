@@ -120,7 +120,9 @@ No version has been tagged yet. Everything below ships in the first release.
   a pointer file: a header banner, a Mermaid service diagram, stack badges, a
   three-step quick start, and collapsible sections for run modes, environment
   variables, endpoints, and demo accounts. Every fact in it links to the
-  document in `docs/` that owns it.
+  document in `docs/` that owns it. Includes a screenshot gallery captured
+  against the running stack — storefront, product specifications, cart,
+  Stripe checkout, and the admin dashboard.
 
 - Backend Compose health checks now gate dependent services on readiness rather
   than container start, so the full-Docker stack comes up in one command.
