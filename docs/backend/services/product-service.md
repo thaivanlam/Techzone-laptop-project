@@ -141,7 +141,7 @@ erDiagram
     product {
         bigint  product_id PK "GenerationType.AUTO"
         varchar product_name "min 3 chars, not blank"
-        varchar image "default.png until uploaded"
+        varchar image "seed/<slug>.jpg, <uuid>.jpg, or default.png"
         varchar description "min 6 chars, not blank"
         int     quantity
         double  price
@@ -467,7 +467,12 @@ Because the base URL points at the **gateway**, image URLs are correct for the
 browser even though the files live on the Product Service container.
 
 New products are created with `image = "default.png"`, which must exist in the
-images directory or the storefront shows a broken image.
+images directory or the storefront shows a broken image — no such file ships, so
+it does not; that is [OPS-01](../known-defects.md).
+
+Seeded products instead carry `seed/<slug>.jpg`. Those files are baked into the
+container image by the `Dockerfile`, and the resource handler's `/images/**`
+pattern matches the nested path, so they resolve without any upload.
 
 ---
 

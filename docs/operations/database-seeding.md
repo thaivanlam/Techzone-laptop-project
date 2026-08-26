@@ -113,11 +113,27 @@ row (processor, RAM, storage, display, graphics), because those are the fields
 the faceted search filters on. Prices are USD, matching the SPA's
 `Intl.NumberFormat("en-US", "USD")` and the `usd` currency Stripe is charged in.
 
-`image` is set to `default.png` — exactly what
-[`ProductServiceImpl.addProduct`](../../backend/product-service/src/main/java/com/ecommerce/product_service/service/ProductServiceImpl.java)
-writes for any product created through the API before an image is uploaded. No
-image files ship with the repo, so seeded products behave like freshly created
-ones; uploading real images stays a UI action.
+`image` holds a real photograph per product — `seed/<slug>.jpg`, a path relative
+to the directory product-service serves at `/images/**`. The files live in
+[`backend/product-service/images/seed/`](../../backend/product-service/images/seed)
+and are copied into that service's container image by its `Dockerfile`, so they
+are present on a cold stack without any upload step and survive a
+`docker compose down`. `ProductServiceImpl.constructImageUrl` prefixes
+`IMAGE_BASE_URL`, so the SPA receives, for example:
+
+```
+http://localhost:5173/product-manager/images/seed/dell-xps-13-plus.jpg
+```
+
+They are Creative Commons and public-domain photographs from Wikimedia Commons,
+downscaled to 900px wide (1.7MB for all fourteen). Where Commons has no picture
+of the exact model, the closest machine of the same make and class stands in.
+Author and licence for each file are recorded in
+[`images/seed/CREDITS.md`](../../backend/product-service/images/seed/CREDITS.md),
+which must travel with the files — the CC BY and CC BY-SA terms require it.
+
+A product **created through the API** still gets `default.png`, which no file
+backs; that is [OPS-01](../backend/known-defects.md), and is unchanged here.
 
 `special_price` is a stored column rather than a derived one, so the seed
 computes `price * (1 - discount/100)` per row, the same way the service does.
@@ -333,6 +349,7 @@ keeps issuing the old values until it reloads.
 | Databases exist before any app | `docker compose up -d mysql`, then `docker exec -e MYSQL_PWD=root mysql mysql -uroot -e "SHOW DATABASES"` | `ecommerce`, `ecommerce_product`, `ecommerce_order` |
 | Collations are uniform | `SELECT schema_name, default_collation_name FROM information_schema.schemata WHERE schema_name LIKE 'ecommerce%'` | all three `utf8mb4_unicode_ci` |
 | Catalogue is served publicly | `curl -s "http://localhost:5173/product-manager/api/public/products?pageSize=50"` | 14 products, image URLs resolved through `IMAGE_BASE_URL` |
+| Product photos are served | `curl -o /dev/null -s -w '%{http_code} %{content_type}' "http://localhost:5173/product-manager/images/seed/dell-xps-13-plus.jpg"` | `200 image/jpeg` — the file is in the container image and `/images/**` is public |
 | Facets work | Filter by brand and processor in the SPA | Seeded specs drive the filter lists |
 | Seeder is idempotent | `docker compose --profile seed up db-seed` a second time | Logs `catalogue already holds 14 product(s)`, exits `0`, counts unchanged |
 | Default path unchanged | `COMPOSE_PROFILES=prod docker compose up -d` | No `db-seed` container, empty catalogue — as before this feature |

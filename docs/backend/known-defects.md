@@ -8,7 +8,9 @@ merely simple. Deliberate simplifications with an accepted rationale live in
 [../architecture/design-decisions.md](../architecture/design-decisions.md) and in
 each service's "Design Notes & Known Trade-offs" section.
 
-Audited: 2026-08-22, against `main`.
+Audited: 2026-08-22, against `main`. BUG-19, BUG-20 and BUG-21 were added on
+2026-08-25: all three were found by writing and running the test suite, not by
+source reading.
 
 ---
 
@@ -80,7 +82,10 @@ the project is demonstrated or extended.
 | [BUG-16](#bug-16--revenue-includes-cancelled-orders-and-is-returned-as-a-string) | Medium | Aggregates ignore order status | order-service |
 | [BUG-17](#bug-17--seller-order-listing-pages-in-memory) | Medium | Every order loaded on every call | order-service |
 | [BUG-18](#bug-18--order-status-is-an-unvalidated-free-text-string) | Medium | No enum, no state machine | order-service |
-| [OPS-01](#6-low-and-hygiene) | Medium | Product images are lost on container recreation | product-service |
+| [BUG-19](#bug-19--a-forged-jwt-signature-escapes-the-validity-check) | Medium | `SignatureException` uncaught: a forged token becomes a 500, not a 401 | gateway, product, order, user |
+| [BUG-20](#bug-20--the-cart-page-returns-500-for-a-customer-who-has-never-had-a-cart) | Medium | `getCart` dereferences a null cart, so every new customer's first cart view is a 500 | order-service |
+| [BUG-21](#bug-21--two-concurrent-adds-of-the-same-product-permanently-break-a-cart) | **High** | Check-then-insert with no unique constraint; a duplicated cart line bricks the account's cart for ever | order-service |
+| [OPS-01](#6-low-and-hygiene) | Medium | Uploaded product images are lost on container recreation; `default.png` is backed by no file | product-service |
 | [OPS-02](#6-low-and-hygiene) | Medium | No upload allow-list, replaced files never deleted | product-service |
 | [OPS-03](#6-low-and-hygiene) | Low | jjwt version skew (0.12.6 vs 0.13.0) | product-service |
 | [OPS-04](#6-low-and-hygiene) | Low | `double` used for money across services | product, order |
@@ -89,7 +94,7 @@ the project is demonstrated or extended.
 | [OPS-07](#6-low-and-hygiene) | Low | `System.out.println` of customer PII | order-service |
 | [OPS-08](#6-low-and-hygiene) | Low | Notification service on Java 17 and a different base package | notification-service |
 | [OPS-09](#6-low-and-hygiene) | Low | Dead code across four modules | backend |
-| [OPS-10](#6-low-and-hygiene) | Low | Tests are context-load smoke tests only | backend |
+| [OPS-10](#6-low-and-hygiene) | ~~Low~~ | **Addressed 2026-08-25** — tests were context-load smoke tests only | backend |
 
 ---
 
@@ -622,6 +627,76 @@ the broker can requeue or dead-letter. Declare a DLQ and a bounded retry policy.
 
 ---
 
+### BUG-21 — Two concurrent adds of the same product permanently break a cart
+
+**Found:** 2026-08-25, accidentally but reproducibly, by two test files running
+in parallel against the same seeded account.
+
+**Location:** `backend/order-service/.../service/CartServiceImpl.java`
+(`addProductToCart`, `createCart`), `model/CartItem.java`, `model/Cart.java`
+
+```java
+CartItem existingItem = cartItemRepository.findCartItemByProductIdAndCartId(cart.getCartId(), productId);
+if (existingItem != null) { ... } else { /* insert a new CartItem */ }
+```
+
+Check-then-insert with no locking, and **no unique constraint** on
+`cart_item (cart_id, product_id)`. Two requests that arrive together both read
+`null` and both insert. `createCart` has the same shape against
+`cart (user_email)`.
+
+The damage does not stop at a duplicated row. `findCartItemByProductIdAndCartId`
+and `findCartByEmail` are declared to return a **single** entity, so from the
+moment a duplicate exists, every subsequent call throws:
+
+```
+org.springframework.dao.IncorrectResultSizeDataAccessException:
+  Query did not return a unique result: 2 results were returned
+```
+
+**Impact:** The customer's cart is bricked. Not "one wrong total" — *every* cart
+operation for that account answers 500 for ever, including opening the cart,
+adding anything else, and checking out. Nothing in the application can recover
+it; the duplicate row has to be deleted in SQL by hand.
+
+Two ordinary user actions reach this: double-clicking "Add to cart", and having
+the shop open in two tabs.
+
+**Reproduction:** issue two `POST /order-manager/api/carts/products/{id}/quantity/1`
+for the same account and product simultaneously, then call any cart endpoint.
+
+**Recovery for an account already affected:**
+
+```sql
+DELETE ci FROM cart_item ci
+  JOIN cart_item other
+    ON ci.cart_id = other.cart_id
+   AND ci.product_id = other.product_id
+   AND ci.cart_item_id > other.cart_item_id;
+```
+
+**Fix, in order of value:**
+
+1. A unique constraint on `cart_item (cart_id, product_id)` and on
+   `cart (user_email)` — this makes the corruption impossible rather than
+   merely unlikely.
+2. Catch the resulting `DataIntegrityViolationException` in `addProductToCart`
+   and re-read, so a lost race becomes a quantity increment.
+3. Change the two repository methods to return `Optional<...>` or a `List`, so a
+   duplicate that somehow exists degrades instead of throwing.
+
+Related to [BUG-02](#bug-02--concurrent-checkout-oversells-the-last-unit) — the
+same read-modify-write shape — but the blast radius is larger, because BUG-02
+loses one unit of stock while this one disables an account's cart permanently.
+
+**Regression test:** none. Reproducing it reliably needs a controlled concurrent
+harness, and doing so leaves a corrupted row behind. The end-to-end suites now
+run serially (`--test-concurrency=1`) precisely so they do not trigger it on
+every run; see
+[../quality/test-plan.md](../quality/test-plan.md#16-what-is-deliberately-not-covered).
+
+---
+
 ## 5. Medium
 
 ### BUG-07 — Cart total drifts away from the sum of its lines
@@ -859,11 +934,133 @@ validate transitions in the service.
 
 ---
 
+### BUG-19 — A forged JWT signature escapes the validity check
+
+**Found:** 2026-08-25, while writing the unit tests for the JWT components —
+not by the original source audit.
+
+**Location:** all four token validators.
+
+| File | Method |
+|---|---|
+| `backend/api-gateway/.../security/JwtService.java` | `isTokenValid` |
+| `backend/product-service/.../security/JwtService.java` | `isTokenValid` |
+| `backend/order-service/.../security/JwtService.java` | `isTokenValid` |
+| `backend/user-service/.../security/jwt/JwtUtils.java` | `validateJwtToken` |
+
+```java
+} catch (MalformedJwtException | ExpiredJwtException | UnsupportedJwtException | IllegalArgumentException ex) {
+    log.warn("Invalid JWT token: {}", ex.getMessage());
+    return false;
+}
+```
+
+`io.jsonwebtoken.security.SignatureException` is **not** in that list. It is
+what jjwt throws for a token that parses correctly but whose signature does not
+verify — which is precisely the shape a forgery takes. A garbled string is
+caught (`MalformedJwtException`); a well-formed token signed with the wrong key
+is not, and the exception propagates out of the check.
+
+**Impact:** Not an authentication bypass — the request is still refused, because
+nothing downstream ever sees a `true`. But:
+
+- At the **gateway**, the exception escapes `AuthenticationFilter.filter`, so a
+  forged token is answered with **500** instead of the **401** the filter
+  returns for every other bad token. A 500 tells the caller their token was
+  structurally acceptable — a small oracle, and noise in the logs that hides a
+  real attack among stack traces.
+- In **product-service** and **order-service**, `AuthUtil` never reaches its
+  `"Invalid or expired authentication token"` `APIException`, so the clean 400
+  the error envelope would produce becomes an untyped 500. Same class of problem
+  as [BUG-10](#bug-10--cross-service-exceptions-surface-as-untyped-500s).
+- In **user-service**, `getCurrentUserDetails` and `getUsername` throw instead of
+  raising their `ResponseStatusException(UNAUTHORIZED)`.
+
+**Fix:** Catch `io.jsonwebtoken.JwtException` — the common supertype of all four
+listed exceptions plus `SignatureException` — alongside
+`IllegalArgumentException`:
+
+```java
+} catch (JwtException | IllegalArgumentException ex) {
+    log.warn("Invalid JWT token: {}", ex.getMessage());
+    return false;
+}
+```
+
+Fix all four together; they are copies of one another.
+
+**Regression tests:** `JwtServiceTest.forgedTokenThrowsInsteadOfReturningFalse`
+(product-service), `JwtUtilsTest.tamperedTokenThrowsInsteadOfReturningFalse`
+(user-service) and `AuthenticationFilterTest.forgedTokenEscapesTheFilter`
+(api-gateway) currently pin the *wrong* behaviour, each with a comment naming the
+assertion to write once this is fixed. See
+[../quality/test-plan.md](../quality/test-plan.md#14-characterisation-tests).
+
+---
+
+### BUG-20 — The cart page returns 500 for a customer who has never had a cart
+
+**Found:** 2026-08-25, by the system suite on its first run against a live stack.
+
+**Location:** `backend/order-service/.../service/CartServiceImpl.java` (`getCart`)
+
+```java
+String emailId = authUtil.loggedInEmail();
+Cart cartByEmail = cartRepository.findCartByEmail(emailId);
+Long cartId = cartByEmail.getCartId();   // NPE when the customer has no cart row
+```
+
+`findCartByEmail` returns `null` for a customer who has never added anything.
+A cart row is only created by `addProductToCart` or `createOrUpdateCartWithItems`,
+so between registering and adding the first item there is no row at all.
+
+**Reproduction:**
+
+```bash
+curl -c jar -X POST localhost:8080/user-manager/api/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"fresh1","email":"fresh1@example.com","password":"password"}'
+curl -c jar -X POST localhost:8080/user-manager/api/auth/signin \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"fresh1","password":"password"}'
+curl -b jar localhost:8080/order-manager/api/carts/users/cart
+# 500 Internal Server Error
+```
+
+Server log:
+
+```
+java.lang.NullPointerException: Cannot invoke
+  "com.ecommerce.order_service.model.Cart.getCartId()" because "cartByEmail" is null
+    at com.ecommerce.order_service.service.CartServiceImpl.getCart(CartServiceImpl.java:100)
+```
+
+**Impact:** Every newly registered customer hits a 500 the first time the cart
+icon is clicked, before they have done anything wrong. It is the worst possible
+moment for a server error — the first minute of a new account.
+
+**Fix:** Return an empty cart rather than dereferencing null. The second read and
+the `cartId` round-trip are redundant anyway:
+
+```java
+Cart cart = cartRepository.findCartByEmail(authUtil.loggedInEmail());
+if (cart == null) {
+    return new CartDTO(null, 0.0, List.of());
+}
+return mapToCartDTO(cart);
+```
+
+**Regression tests:** `CartServiceImplTest.getCartThrowsWhenBuyerHasNoCart` and
+`tests/system/cart-and-checkout.test.js` (*"BUG-20: a customer who has never had
+a cart gets a 500"*) both pin the current behaviour.
+
+---
+
 ## 6. Low and Hygiene
 
 | ID | Defect | Location | Fix |
 |---|---|---|---|
-| **OPS-01** | Product images are written to `/app/images` in the container with **no volume mount**, so every uploaded image is lost on `docker compose down` or a rebuild. `image = "default.png"` on new products must also exist on disk or the storefront shows broken images. | `backend/docker-compose.yml`, `product-service` `WebMvcConfig` | Mount a named volume at the resolved `project.image` path; move to object storage if the project is deployed. |
+| **OPS-01** | Product images are written to `/app/images` in the container with **no volume mount**, so every *uploaded* image is lost on `docker compose down` or a rebuild. `image = "default.png"`, which `addProduct` writes for a product created through the API, is backed by no file at all, so a new product shows a broken image until one is uploaded. (The *seeded* catalogue is unaffected: its photos live in `product-service/images/seed/` and are baked into the container image by the `Dockerfile`.) | `backend/docker-compose.yml`, `product-service` `WebMvcConfig` | Mount a named volume at the resolved `project.image` path and ship a real `default.png`; move to object storage if the project is deployed. |
 | **OPS-02** | Upload has no MIME or extension allow-list, and replaced images are never deleted. Files are served as static resources so they are not executed, but any authenticated user can fill the disk with arbitrary content. | `FileServiceImpl` | Allow-list `image/jpeg`, `image/png`, `image/webp`; delete the previous file on replace and on product delete. |
 | **OPS-03** | jjwt is pinned to **0.12.6** in product-service but **0.13.0** in the gateway, order-service, and user-service. All four verify the same tokens. | four `pom.xml` files | Align on one version, ideally managed in a shared parent pom. |
 | **OPS-04** | Money is `double` throughout — `Product.price`, `specialPrice`, `Cart.totalPrice`, `Order.totalAmount`, and `ProductSnapshot`. Binary floating-point error accumulates across order lines. | product-service, order-service | `BigDecimal` with an explicit scale. Must change in both services and the snapshot together. |
@@ -872,7 +1069,7 @@ validate transitions in the service.
 | **OPS-07** | `System.out.println` of request DTOs in `orderProducts` and `createStripeClientSecret` writes the customer's email and full postal address to stdout, where it lands in container logs. | `OrderController.java:34,42` | Remove, or convert to `log.debug` without the PII fields. |
 | **OPS-08** | notification-service targets **Java 17** (pom and Dockerfile) and uses the base package `vn.vti.dtn2504.notificationservice` while every other module is Java 21 under `com.ecommerce.*`. | `notification-service` | Align both. Harmless at runtime, but it breaks shared tooling and parent-pom conventions. |
 | **OPS-09** | Dead code: `EmptyArrayException` (both services), `CartRepository.findCartsByProductId`, `CartService.updateProductInCarts`, `PaymentRepository`, order-service's `WebMvcConfig` image handler, `OrderRequestDTO.paymentMethod` (ignored — the controller uses the path variable), `SendNotificationRequest`, `ProductRepository.findByCategoryOrderByPriceAsc`, the non-paginated `findByProductNameLikeIgnoreCase`, `CategoryServiceImpl.nextId`. | backend | Delete. |
-| **OPS-10** | Every module's test suite is a single Spring context-load smoke test. Login, signup, JWT validation, cart mutation, order placement, stock reduction, search specifications, and address CRUD are untested. | backend | At minimum, add regression tests for the defects fixed from this register — they are the cases most likely to reappear. |
+| ~~**OPS-10**~~ | ~~Every module's test suite is a single Spring context-load smoke test.~~ **Addressed 2026-08-25.** Five modules now carry unit and integration suites (146 unit, 59 integration), and the superproject carries system, acceptance and front-end unit suites. Thirteen entries in this register have a characterisation test pinning their current behaviour. See [../quality/test-plan.md](../quality/test-plan.md). | backend | Remaining gaps are listed under ["What is deliberately not covered"](../quality/test-plan.md#16-what-is-deliberately-not-covered): React components, browser-level acceptance, Stripe, real SMTP, RabbitMQ end to end, load, and concurrency. |
 | **OPS-11** | `SwaggerConfig` in product-service and order-service declares a **bearer** security scheme, but both services authenticate by cookie. Swagger's Authorize button produces requests that do not work. | `SwaggerConfig` | Declare an `apiKey` scheme with `in: cookie` and name `springBootEcom`. |
 
 ### SEC-12 — The Eureka registry is public and writable
@@ -930,23 +1127,33 @@ Ordered by risk removed per unit of effort, not by severity alone.
 - SEC-05 (service half), SEC-07, SEC-08, SEC-09. A consistent guard helper per
   service; mechanical once the first is written.
 
-**4 — Make money and stock correct**
+**4 — Stop the cart corrupting itself (small, and user-visible today)**
+- BUG-21: a unique constraint on `cart_item (cart_id, product_id)` and on
+  `cart (user_email)`. One migration; it turns "the account's cart is bricked
+  for ever" into "the second click loses a race and is retried".
+- BUG-20: a null check in `getCart`. Three lines, and it is the first thing a
+  new customer hits.
+
+**5 — Make money and stock correct**
 - BUG-02 (atomic decrement), then BUG-01 (batch reservation or compensation).
   BUG-02 first, because the atomic-decrement endpoint is a building block for
   the batch call.
 - SEC-03: the Stripe webhook. Larger, and it changes the checkout state machine,
   so schedule it deliberately.
 
-**5 — Fix the visible correctness bugs**
-- BUG-03, BUG-04, BUG-06, BUG-12, BUG-13. Each is small and each is
-  user-visible.
+**6 — Fix the visible correctness bugs**
+- BUG-03, BUG-04, BUG-06, BUG-12, BUG-13, BUG-19. Each is small and each is
+  user-visible. BUG-19 is one catch clause, repeated in four files.
 
-**6 — Structural clean-up**
+**7 — Structural clean-up**
 - BUG-05, BUG-14, BUG-17, BUG-18, and the OPS items, as the surrounding code is
   touched.
 
-Add a regression test alongside each fix — per OPS-10, there is currently
-nothing that would catch a reintroduction.
+Add a regression test alongside each fix. As of 2026-08-25 there is a suite to
+add it to — see [../quality/test-plan.md](../quality/test-plan.md).
+Thirteen entries in this register already have a characterisation test pinning
+their current behaviour, so fixing one of those turns its test red on purpose:
+update the expectation in the same change set.
 
 ---
 
@@ -958,5 +1165,7 @@ nothing that would catch a reintroduction.
 | JWT model, role hierarchy, enforcement gaps | [../architecture/security-model.md](../architecture/security-model.md) |
 | Accepted trade-offs and their rationale | [../architecture/design-decisions.md](../architecture/design-decisions.md) |
 | Platform limitations and roadmap | [../architecture/system-overview.md](../architecture/system-overview.md#known-limitations) |
+| How these defects are tested for | [../quality/test-plan.md](../quality/test-plan.md) |
+| What *kind* of defect each entry is | [../quality/bug-taxonomy.md](../quality/bug-taxonomy.md) |
 | Endpoint listing with access levels | [api-reference.md](api-reference.md) |
 | Compose topology and port bindings | [../operations/docker-setup.md](../operations/docker-setup.md) |
