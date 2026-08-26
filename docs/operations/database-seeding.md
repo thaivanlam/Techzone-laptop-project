@@ -204,6 +204,45 @@ only run when the data directory is created. `docker compose down -v` first.
 
 ---
 
+## Seeding under the `dev` profile (Mode 3)
+
+Everything above targets `PRODUCT_DB=ecommerce_product` / `USER_DB=ecommerce`
+— the schemas the `prod` profile uses. Under `dev` (Mode 3 hybrid — business
+services run from the IDE, see
+[ide-debug-setup.md](../development/ide-debug-setup.md)), each service uses
+its own per-service schema instead
+(`laptop_ecommerce_graduation_project_product_service`,
+`laptop_ecommerce_graduation_project_user_service` — see
+[running-locally.md](running-locally.md#mode-3--hybrid-dev)). `db-seed`
+never targets these on its own, so a fresh Mode 3 stack starts with an empty
+catalogue and stays that way even with the `seed` profile enabled, unless the
+two variables above are overridden.
+
+`db-seed` still only needs `mysql` healthy — not the IDE-run services — so it
+runs the same way regardless of whether `product-service` happens to be up
+yet. From `backend/`:
+
+```bash
+docker compose --profile seed run --rm \
+  -e PRODUCT_DB=laptop_ecommerce_graduation_project_product_service \
+  -e USER_DB=laptop_ecommerce_graduation_project_user_service \
+  db-seed
+```
+
+This reuses the exact same service, image, network and `catalogue.sql` as
+the `prod` path — only the target schema names differ — so everything above
+(idempotency, the `product_seq` bump, the seller lookup, the charset
+handling) applies unchanged. `MYSQL_HOST` stays at its default (`mysql`, the
+container's name on the Compose network) because the seeder always runs
+*inside* Docker, even when the business services do not.
+
+If `product-service` has not created its tables yet (first run, or right
+after `docker compose down -v`), start it from the IDE first — `db-seed`
+polls for the schema and fails after `WAIT_TIMEOUT` (default 300s) rather
+than hanging forever.
+
+---
+
 ## Verifying a seeded stack
 
 ### The test that matters: create a product *after* seeding
