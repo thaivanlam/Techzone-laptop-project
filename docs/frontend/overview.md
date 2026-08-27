@@ -69,7 +69,7 @@ src/
 │   ├── modal/                  # Product specification modal
 │   ├── order/                  # Customer order history & management
 │   ├── products/               # Product listing with advanced filters
-│   ├── profile/                # User profile & address management
+│   ├── profile/                # User profile, address management, change password
 │   ├── shared/                 # Navbar, Sidebar, Loader, and other reusables
 │   └── helper/
 │       └── tableColumn.jsx     # DataGrid column definitions for all tables
@@ -191,6 +191,23 @@ addresses are never referenced.
 - Address CRUD with a selection UI
 - Stripe Elements (test mode) for card input
 - A confirmation page handles the Stripe redirect and places the order
+
+### Change Password (Profile)
+
+- Available from **Profile → Security** to every signed-in role — customer,
+  seller and admin alike — via `ChangePasswordModal.jsx`
+- Two-step flow: the current password is verified against the backend first
+  (`POST /user-manager/api/users/password/verify`), with a spinner while the
+  call is in flight and a green "Verified" badge on success; only then does
+  the new-password / confirm-password step render
+- Client-side checks (minimum length, confirmation match) gate the submit
+  button before the change request
+  (`PUT /user-manager/api/users/password`) is sent; a toast reports success or
+  the server's rejection reason, and the modal closes on success
+- The backend queues a "password changed" email through the same
+  RabbitMQ/notification-service path used for the registration welcome email
+  — see
+  [../backend/services/user-service.md](../backend/services/user-service.md#account-self-service--accountcontroller)
 
 ### Role-Based Access Control
 

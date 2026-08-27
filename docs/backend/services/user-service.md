@@ -83,7 +83,8 @@ user-service/src/main/java/com/ecommerce/user_service/
 ├── UserServiceApplication.java       # Spring Boot entry point
 ├── controller/                       # REST layer
 │   ├── AuthController.java
-│   └── AddressController.java
+│   ├── AddressController.java
+│   └── AccountController.java        # self-service password verify/change
 ├── service/                          # Business logic
 │   ├── AuthService.java / AuthServiceImpl.java
 │   ├── AddressService.java / AddressServiceImpl.java
@@ -118,7 +119,7 @@ user-service/src/main/java/com/ecommerce/user_service/
 
 | Layer | Key classes | Responsibility |
 |-------|-------------|----------------|
-| **Controller** | `AuthController`, `AddressController` | HTTP mapping, validation, response shaping |
+| **Controller** | `AuthController`, `AddressController`, `AccountController` | HTTP mapping, validation, response shaping |
 | **Service** | `AuthServiceImpl`, `AddressServiceImpl`, `NotificationProducer` | Business rules, JWT/cookie handling, messaging |
 | **Repository** | `UserRepository`, `AddressRepository`, `RoleRepository` | Database access via Spring Data JPA |
 | **Domain** | `User`, `Address`, `Role`, `AppRole` | JPA entities and role enum |
@@ -297,6 +298,51 @@ Base path: `/api` → Gateway: `/user-manager/api`
 - **Get all addresses**: Throws `APIException` if database is empty
 - **Update / Delete**: No ownership verification — any authenticated user can modify any address by ID
 
+### Account self-service — `AccountController`
+
+Base path: `/api/users` → Gateway: `/user-manager/api/users`
+
+| Method | Gateway path | Service path | Auth | Description |
+|--------|--------------|--------------|------|-------------|
+| `POST` | `/user-manager/api/users/password/verify` | `/api/users/password/verify` | Cookie | Check a candidate current password against the logged-in user's stored hash |
+| `PUT` | `/user-manager/api/users/password` | `/api/users/password` | Cookie | Change the logged-in user's password |
+
+Deliberately placed under `/api/users` rather than `/api/auth`: the gateway
+marks all of `/user-manager/api/auth/**` public (see
+[§6](#gateway-public-paths-relevant-to-user-service)), so a password endpoint
+living there would reach `AuthUtil.loggedInUser()` with no JWT cookie at all
+and fail as an unhandled `500`. `/api/users/**` is not on the public-path
+list, so the gateway itself refuses a missing or expired cookie with a clean
+`401` before the controller runs — the same protection
+`GET /api/users/addresses` already relies on.
+
+#### Request / Response DTOs — Account
+
+| DTO | Package | Fields |
+|-----|---------|--------|
+| `VerifyPasswordRequest` | `security.request` | `currentPassword` (`@NotBlank`) |
+| `ChangePasswordRequest` | `security.request` | `currentPassword` (`@NotBlank`), `newPassword` (`@NotBlank`, 6–40 chars), `confirmPassword` (`@NotBlank`) |
+
+Both endpoints return the existing `MessageResponse` on success.
+
+#### Business Rules — Account
+
+- **Verify**: Resolves the caller via `AuthUtil.loggedInUser()` and compares
+  `currentPassword` against the stored BCrypt hash with `PasswordEncoder.matches`.
+  No side effect — it only tells the caller whether the value they typed is
+  correct, which is what lets the frontend show a "Verified" state before
+  asking for a new password.
+- **Change**: Re-verifies `currentPassword` independently of any earlier
+  verify call (the two endpoints do not share state), rejects a
+  `newPassword`/`confirmPassword` mismatch and a `newPassword` identical to
+  the current one — all as `APIException` → `400`. On success it hashes and
+  saves the new password, then calls
+  `NotificationProducer.sendPasswordChangedEmail(email, username)` to queue a
+  transactional email, exactly like the registration welcome email
+  ([§7](#7-async-integration--rabbitmq)).
+- Available to every role — customer, seller, admin — with identical
+  behaviour; there is no admin-only variant.
+
 ---
 
 ## 6. Authentication & Authorization
@@ -411,6 +457,26 @@ sequenceDiagram
     NotificationProducer->>RabbitMQ: convertAndSend(exchange, routingKey, NotificationEmail)
     RabbitMQ->>NotificationService: Deliver message
     NotificationService->>NotificationService: Send welcome email
+```
+
+### Password-Changed Email Flow
+
+The same producer, exchange and routing key carry a second event: a
+successful `changePassword` call publishes a "password changed" notice to the
+account's own email address.
+
+```mermaid
+sequenceDiagram
+    participant AuthService
+    participant NotificationProducer
+    participant RabbitMQ
+    participant NotificationService
+
+    AuthService->>AuthService: changePassword() saves the new hash
+    AuthService->>NotificationProducer: sendPasswordChangedEmail(email, username)
+    NotificationProducer->>RabbitMQ: convertAndSend(exchange, routingKey, NotificationEmail)
+    RabbitMQ->>NotificationService: Deliver message
+    NotificationService->>NotificationService: Send "password changed" email
 ```
 
 ### Configuration

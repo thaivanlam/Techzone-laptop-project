@@ -60,6 +60,19 @@ endpoints that need an identity validate the JWT cookie internally.
 Update and delete do not verify ownership — any authenticated user can modify
 any address by ID.
 
+### Account self-service — `AccountController`
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| POST | `/user-manager/api/users/password/verify` | USER | Check a candidate current password against the logged-in user's stored hash, with no side effect |
+| PUT | `/user-manager/api/users/password` | USER | Change the logged-in user's password; requires the current password again and a matching confirmation, then queues a "password changed" email |
+
+Unlike `/api/auth/**`, `/api/users/**` is **not** on the gateway's public-path
+list, so a missing or expired JWT cookie is refused with a gateway-level `401`
+before the request reaches the controller — the same protection
+`GET /api/users/addresses` relies on. Available to every role (customer,
+seller, admin); there is no admin-only variant.
+
 ---
 
 ## Product Service — `/product-manager`

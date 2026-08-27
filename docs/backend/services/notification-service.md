@@ -53,7 +53,8 @@ and worth knowing before touching it:
 
 | Producer | Event | Class |
 |---|---|---|
-| user-service | Welcome email on signup | its RabbitMQ producer |
+| user-service | Welcome email on signup | its RabbitMQ producer (`NotificationProducer`) |
+| user-service | Password-changed notice on a successful self-service password change | same `NotificationProducer` |
 | order-service | Order confirmation on placement | `NotificationPublisher` |
 
 ---
@@ -62,7 +63,8 @@ and worth knowing before touching it:
 
 ```
   user-service :8082                    order-service :8083
-  (signup → welcome email)              (placeOrder → confirmation)
+  (signup → welcome email,              (placeOrder → confirmation)
+   change password → notice)
           │                                     │
           │ convertAndSend(                     │ convertAndSend(
           │   "notification-exchange",          │   "notification-exchange",
@@ -213,6 +215,7 @@ by type and share only field names, which the JSON converter matches at runtime.
 | Producer | Subject | Body |
 |---|---|---|
 | user-service | Welcome message | Registration greeting |
+| user-service | `Your password has been changed` | A notice that the account password was just changed, with a prompt to contact support if the user did not make the change |
 | order-service | `Order Confirmation - Order {orderId}` | `Thank you for your purchase! Your order {orderId} has been placed successfully with total amount {totalAmount}.` |
 
 Everything is plain text — no HTML, no templates, no localization. Amounts are
