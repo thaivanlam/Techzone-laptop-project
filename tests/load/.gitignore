@@ -1,0 +1,4 @@
+# Run output: raw samples, the generated HTML report, and JMeter's own log.
+results/
+*.jtl
+*.log

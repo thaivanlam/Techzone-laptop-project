@@ -110,6 +110,18 @@ the user that no single class is responsible for keeping.
 **Everything below System must run on a laptop with nothing started, in one
 `mvn test`.** That is what makes it usable in a pre-commit loop.
 
+### Beside the pyramid: performance
+
+All four levels ask *does it do the right thing*, one request at a time. A
+fifth kind of testing asks *for how many people at once, and what gives way
+first*: two JMeter plans in [`tests/load/`](../../tests/load/README.md), run at
+smoke, load, stress and spike stages against a live stack with Prometheus and
+Grafana watching from the inside. It is not part of the pyramid because it is
+not pass/fail in the same way — a run produces numbers to judge against
+thresholds, and names the resource that saturated. The plan, the thresholds
+and the recorded runs are in
+[performance-testing.md](performance-testing.md).
+
 ---
 
 ## 4. Where the Tests Live
@@ -122,6 +134,7 @@ tests/frontend/                                     node:test                   
 tests/system/                                       node:test, live stack       — level 3
 tests/acceptance/                                   node:test, live stack       — level 4
 tests/acceptance/features/                          Gherkin, the promises in prose
+tests/load/                                         JMeter, live stack          — performance
 ```
 
 Backend tests sit inside the submodule they test, so `mvn test` in any module
@@ -533,10 +546,14 @@ Stated plainly, so nobody mistakes a gap for a guarantee.
 - **RabbitMQ end to end.** Publishing is verified with a test double; that a
   message is consumed and turned into an email is not automated. A
   `RabbitMQContainer` under Testcontainers would close this.
-- **Load, soak and performance.** Nothing here measures throughput or latency.
-  `BUG-17` (in-memory paging of seller orders) is a documented performance defect
-  that only a load test would surface as a failure, and `NFR-PRF-1` is therefore
-  unverified.
+- **Soak and volume.** Load testing itself is no longer a gap — the JMeter
+  plans in [`tests/load/`](../../tests/load/README.md) and the metrics they are
+  read against are described in
+  [performance-testing.md](performance-testing.md). What is still missing is a
+  run: no full-stack measurement has been recorded, so `NFR-PRF-1` remains
+  unverified. Nothing runs for hours either, so a slow leak would go unnoticed,
+  and the seeded catalogue is far too small for the defects that only bite at
+  thousands of rows — `BUG-17`'s in-memory paging among them.
 - **Concurrency.** `BUG-02` (concurrent checkout overselling the last unit) and
   `BUG-21` (concurrent adds permanently breaking a cart) are both documented but
   neither is reproduced by a test. Doing so reliably needs a controlled
@@ -563,3 +580,5 @@ Stated plainly, so nobody mistakes a gap for a guarantee.
 | Which endpoint is which? | [../backend/api-reference.md](../backend/api-reference.md) |
 | Who is allowed to call what? | [../architecture/security-model.md](../architecture/security-model.md) |
 | How do I run the end-to-end suites? | [`tests/README.md`](../../tests/README.md) |
+| How does it behave under concurrent load? | [performance-testing.md](performance-testing.md), [`tests/load/README.md`](../../tests/load/README.md) |
+| What is being measured while it runs? | [../operations/observability.md](../operations/observability.md) |

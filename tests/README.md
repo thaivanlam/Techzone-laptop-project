@@ -1,13 +1,16 @@
 # Tests
 
-Three suites live here:
+Four suites live here:
 
 - **`frontend/`** — unit tests for the single-page application's reducers and display
   helpers. Pure functions: no stack, no browser, no npm install.
 - **`system/`** — the whole platform, driven through the API Gateway.
 - **`acceptance/`** — the same platform, exercised as the user stories describe it.
+- **`load/`** — the same platform under concurrent load, driven by JMeter rather than
+  by Node. It measures rather than asserts; it has its own
+  [README](load/README.md).
 
-The system and acceptance suites need a **running stack**; nothing in them is mocked and no
+The system, acceptance and load suites need a **running stack**; nothing in them is mocked and no
 service is reached directly.
 
 The backend unit and integration levels live inside the backend modules and run with Maven.
@@ -30,6 +33,7 @@ levels fit together.
 | [`acceptance/shopping.test.js`](acceptance/shopping.test.js) | Acceptance | *Browsing the shop*, *Filling a cart and buying* |
 | [`acceptance/staff.test.js`](acceptance/staff.test.js) | Acceptance | *Staff and customer boundaries* |
 | [`acceptance/features/`](acceptance/features/) | Acceptance | The scenarios in business language (Gherkin), one file per feature |
+| [`load/`](load/) | Performance | Two JMeter plans — catalogue browsing, and cart to placed order — at smoke, load, stress and spike stages |
 | [`lib/`](lib/) | — | Gateway URL, seeded accounts, a cookie-keeping HTTP session, task helpers, the preflight probe |
 
 The Gherkin files are the readable statement of what the platform promises; the `.test.js`
@@ -58,11 +62,14 @@ COMPOSE_PROFILES=prod,seed docker compose up -d
 Then, from this directory:
 
 ```bash
-npm test                 # every suite here
+npm test                 # every Node suite here (not load - see below)
 npm run test:frontend    # front-end unit tests - no stack needed
 npm run test:system      # system tests
 npm run test:acceptance  # acceptance tests
 npm run preflight        # just check the stack is up
+
+# the load suite is not npm: it needs JMeter, and it measures rather than asserts
+cd load && ./run.sh catalogue-browse smoke
 ```
 
 Without npm, the same thing directly — note `--test-concurrency=1` for the live suites, see
