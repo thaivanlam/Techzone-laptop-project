@@ -3,11 +3,11 @@
 How the TechZone platform is tested: at four levels, with what, to what
 standard, and when a change or a release is allowed through.
 
-**The short version.** **191 unit tests** and **59 integration tests** run
+**The short version.** **197 unit tests** and **65 integration tests** run
 offline with no infrastructure at all — no fixture database, no SMTP host, no
 Stripe key, no Config Server. **60 system tests** and **33 acceptance tests** run
 against a live stack through the API Gateway. With 7 context-load smoke tests,
-**350 automated tests** in total.
+**362 automated tests** in total.
 
 The concrete cases are in [test-cases.md](test-cases.md); the manual pass is
 [uat-checklist.md](uat-checklist.md); what has been executed and what it found is
@@ -77,8 +77,8 @@ RabbitMQ), and the requirements listed as out of scope in
 
 | Level | Question it answers | Scope of one test | Infrastructure | Count |
 |---|---|---|---|---|
-| **Unit** | Does this function do its own job? | One class or function, every collaborator faked | None | **191** |
-| **Integration** | Do these parts still fit together? | A slice: HTTP layer + serialisation, repository + Hibernate + SQL, or a client + a real HTTP conversation | In-memory H2, an in-process HTTP stub | **59** |
+| **Unit** | Does this function do its own job? | One class or function, every collaborator faked | None | **197** |
+| **Integration** | Do these parts still fit together? | A slice: HTTP layer + serialisation, repository + Hibernate + SQL, or a client + a real HTTP conversation | In-memory H2, an in-process HTTP stub | **65** |
 | **System** | Does the assembled platform behave correctly? | The whole deployment, entered only through the gateway | The running stack | **60** (54 default, 6 opt-in) |
 | **Acceptance** | Does it do what was promised to the user? | A user story, start to finish, in business language | The running stack | **33** (31 default, 2 opt-in) |
 
@@ -90,8 +90,8 @@ before another test fails confusingly.
 flowchart TB
     A["Acceptance · 33<br/>user stories, live stack"]
     S["System · 60<br/>whole platform through the gateway"]
-    I["Integration · 59<br/>HTTP layer, JPA + H2, service-to-service contract"]
-    U["Unit · 191<br/>one class, everything else faked"]
+    I["Integration · 65<br/>HTTP layer, JPA + H2, service-to-service contract"]
+    U["Unit · 197<br/>one class, everything else faked"]
 
     A --- S --- I --- U
 

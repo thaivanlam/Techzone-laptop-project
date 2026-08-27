@@ -31,8 +31,8 @@ modified · **Environment:** local development machine
 
 | Metric | Value |
 |---|---|
-| Automated tests written | **350** |
-| Executed at least once, green | **342** |
+| Automated tests written | **362** |
+| Executed at least once, green | **354** |
 | Never executed | **8** — the `RUN_DESTRUCTIVE=1` cases that place real orders |
 | Failures outstanding | **0** |
 | Requirements with at least one automated case | 47 of 62 |
@@ -59,13 +59,13 @@ distinction matters when reading a result.
 | api-gateway | 29 | 0 | ✅ |
 | config-server | 1 | 0 | ✅ |
 | discovery-service | 1 | 0 | ✅ |
-| user-service | 51 | 0 | ✅ |
+| user-service | 63 | 0 | ✅ |
 | product-service | 71 | 0 | ✅ |
 | order-service | 56 | 0 | ✅ |
 | notification-service | 4 | 0 | ✅ |
-| **Backend total** | **213** | **0** | ✅ BUILD SUCCESS ×7 |
+| **Backend total** | **225** | **0** | ✅ BUILD SUCCESS ×7 |
 | Front-end unit (`tests/frontend/`) | 44 | 0 | ✅ |
-| **Total** | **257** | **0** | ✅ |
+| **Total** | **269** | **0** | ✅ |
 
 Run offline against a warm Maven repository, on JDK 25 with the modules
 targeting 21. No test contacted the network: each module's test-classpath
@@ -94,6 +94,12 @@ loaded: **342 of 350 green** — 213 with Maven, 44 front-end, 54 system, 31
 acceptance. The remaining 8 are the `RUN_DESTRUCTIVE=1` cases that place real
 orders; they have not been executed.
 
+Figures below this point (and the Summary in [§1](#1-summary)) include the
+12 unit and integration tests added for the change-password feature on
+2026-08-26, written after this run and covered only by Run A above; neither
+run has been repeated since, so **342 of 350** remains this run's own, honest
+figure for the stack as it existed on the day it ran.
+
 That run is the origin of the three defects in
 [§7](#7-what-the-suites-found-on-their-own). It is reported here as recorded, not
 as re-observed: the live levels have not been re-run since.
@@ -109,9 +115,9 @@ cd tests && npm run preflight && npm test
 
 ## 3. Suite Inventory
 
-### Level 1 — Unit · 191 tests
+### Level 1 — Unit · 197 tests
 
-**Backend — 147**
+**Backend — 153**
 
 | Module | Class | Tests | What it pins down |
 |---|---|---|---|
@@ -121,7 +127,7 @@ cd tests && npm run preflight && npm test
 | product-service | `ImagePathUtilsTest` | 4 | Absolute vs relative image directories, normalisation |
 | order-service | `CartServiceImplTest` | 27 | Cart creation, line accumulation, stock validation including what is already in the cart, quantity arithmetic, removal, bulk sync, repricing |
 | order-service | `OrderServiceImplTest` | 12 | Checkout: order written, lines copied, payment recorded, stock taken, cart emptied, confirmation published; empty-cart and no-cart refusals |
-| user-service | `AuthServiceImplTest` | 20 | Sign-in success and failure, password hashing, role defaulting, duplicate refusals, account-deletion guards |
+| user-service | `AuthServiceImplTest` | 26 | Sign-in success and failure, password hashing, role defaulting, duplicate refusals, account-deletion guards, self-service password verify/change |
 | user-service | `JwtUtilsTest` | 13 | Token minting and the claim contract other services depend on, cookie lifetime and flags |
 | api-gateway | `AuthenticationFilterTest` | 21 | The full authentication and authorisation truth table: public paths, pre-flight, missing/blank/expired/garbage/forged tokens, every role against every guarded route |
 | notification-service | `EmailServiceImplTest` | 3 | Message assembly from the configured sender, and the swallowed-failure behaviour |
@@ -133,7 +139,7 @@ cd tests && npm run preflight && npm test
 | `tests/frontend/reducers.test.js` | 26 | Cart, auth, product and error reducers: every action, the initial state, and that no reducer mutates the state it was handed |
 | `tests/frontend/formatting.test.js` | 18 | Currency formatting and rounding, line totals from string-typed form inputs, revenue abbreviation at each threshold, description truncation |
 
-### Level 2 — Integration · 59 tests
+### Level 2 — Integration · 65 tests
 
 | Module | Class | Tests | The seam it covers |
 |---|---|---|---|
@@ -143,6 +149,7 @@ cd tests && npm run preflight && npm test
 | order-service | `ProductServiceClientIntegrationTest` | 6 | **The cross-service contract**: URL assembly, base-URL normalisation, deserialisation, the reduce-stock body shape, how remote failures surface |
 | user-service | `UserRepositoryIntegrationTest` | 9 | Identity persistence: eager role loading, database-level unique constraints, the role-filtered page query |
 | user-service | `AuthControllerIntegrationTest` | 8 | The real `SecurityConfig` chain, bean validation on sign-up, and the `Set-Cookie` header carrying the session |
+| user-service | `AccountControllerIntegrationTest` | 6 | Request binding and bean validation on the verify/change-password payloads, and the advice that turns `APIException` into 400 |
 | api-gateway | `GatewaySecurityPolicyTest` | 7 | The **deployed** policy, bound and asserted: no admin route on the public list, every mapping names a role |
 
 ### Level 3 — System · 60 tests
