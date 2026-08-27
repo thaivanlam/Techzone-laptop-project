@@ -23,6 +23,29 @@ No version has been tagged yet. Everything below ships in the first release.
 
 ### Added
 
+- **Metrics on every service.** All seven backend services now expose a
+  Micrometer registry at `/actuator/prometheus`, with request histograms so
+  latency percentiles can be computed rather than guessed. A new
+  `observability` Compose profile adds Prometheus (scraping every 10s, 15-day
+  retention, three alert rules) and Grafana (two dashboards provisioned from
+  the repository: a service overview, and per-endpoint latency for the
+  ordering and catalogue APIs):
+
+  ```bash
+  COMPOSE_PROFILES=prod,observability docker compose up -d
+  ```
+
+  Grafana is published on `GRAFANA_PORT` (3001 by default), Prometheus on
+  `PROMETHEUS_PORT` (9090). Neither is started by the default profile. See
+  [`docs/operations/observability.md`](docs/operations/observability.md) and
+  [ADR-0010](docs/architecture/decisions/0010-prometheus-grafana-metrics.md).
+- **JMeter load tests** in [`tests/load/`](tests/load/README.md): two plans —
+  anonymous catalogue browsing, and register-to-placed-order — runnable at
+  smoke, load, stress and spike stages through `run.sh` / `run.ps1`, with an
+  HTML report per run. The plan, thresholds and procedure are in
+  [`docs/quality/performance-testing.md`](docs/quality/performance-testing.md).
+  No full-stack run is recorded yet; the harness is verified, the numbers are
+  not.
 - Self-service password change from **Profile → Security**, available to
   every role (customer, seller, admin). The current password is verified
   first, with a visible "Verifying…" / "Verified" state, before the new
