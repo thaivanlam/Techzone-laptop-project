@@ -23,6 +23,13 @@ No version has been tagged yet. Everything below ships in the first release.
 
 ### Added
 
+- Self-service password change from **Profile → Security**, available to
+  every role (customer, seller, admin). The current password is verified
+  first, with a visible "Verifying…" / "Verified" state, before the new
+  password and confirmation are accepted; a successful change queues a
+  "password changed" email through the existing notification pipeline. New
+  endpoints: `POST /user-manager/api/users/password/verify` and
+  `PUT /user-manager/api/users/password`.
 - Root `docker-compose.yml` running the full stack — MySQL, RabbitMQ, config
   server, discovery, the four business services, the API gateway, and the
   frontend — on one `ecommerce-network`. The backend service definitions are
