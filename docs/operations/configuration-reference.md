@@ -61,7 +61,7 @@ backend service. Copy `.env.example` and fill it in.
 | Variable | Default | Read by | Effect |
 |---|---|---|---|
 | `SPRING_PROFILES_ACTIVE` | `prod` | every backend service | Which Config Server profile loads. `dev` → localhost hostnames; `prod` → Docker network names |
-| `COMPOSE_PROFILES` | `prod` | Compose | Which containers start. Empty → infrastructure only; `prod` → everything; `prod,seed` → also the one-shot catalogue seeder |
+| `COMPOSE_PROFILES` | `prod` | Compose | Which containers start. Empty → infrastructure only; `prod` → everything; `prod,seed` → also the one-shot catalogue seeder; add `observability` for Prometheus and Grafana |
 | `STRIPE_SECRET_KEY` | — | order-service | Stripe API calls. Without it, checkout fails |
 | `MAIL_PASSWORD` | — | notification-service | Gmail app password. Without it, no email is sent |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | — | frontend **build** | Stripe Elements in the browser |
@@ -71,6 +71,10 @@ backend service. Copy `.env.example` and fill it in.
 | `API_GATEWAY_URL` | `http://api-gateway:8080` | frontend nginx, at container start | Where proxied `/​*-manager` calls go |
 | `IMAGE_BASE_URL` | `http://localhost:5173/product-manager/images` | product-service | Base URL returned with every product image |
 | `MYSQL_PORT` | `3306` | Compose | Host binding for MySQL. Raise it (e.g. `3307`) when a native MySQL holds 3306 — inside the network services always use `mysql:3306` |
+| `PROMETHEUS_PORT` | `9090` | Compose | Host port for Prometheus. Only used when `COMPOSE_PROFILES` includes `observability` |
+| `GRAFANA_PORT` | `3001` | Compose | Host port for Grafana. Not 3000: that is one of the frontend dev origins the gateway allows for CORS, and is left free for a Vite server |
+| `GRAFANA_ADMIN_USER` | `admin` | grafana | Grafana administrator account. Anonymous viewers get read-only access without it |
+| `GRAFANA_ADMIN_PASSWORD` | `admin` | grafana | Set it to anything else before running this anywhere with an address |
 
 **`SPRING_PROFILES_ACTIVE` and `COMPOSE_PROFILES` must agree.** `prod` containers
 loading the `dev` profile look for MySQL, RabbitMQ and Eureka on `localhost`
@@ -122,6 +126,25 @@ gets a shared file plus a `-dev` and a `-prod` overlay.
 | `spring.app.jwtExpirationMs` | `3000000` | Token lifetime, about 50 minutes |
 | `spring.ecom.app.jwtCookieName` | `springBootEcom` | Cookie the token travels in |
 | `springdoc.api-docs.enabled` | `true` shared, `false` in `-prod` | Swagger is a development-only surface |
+
+### Shared by every service — metrics
+
+Set in each business service's `config/<service>.yml`, and in the gateway's,
+Config Server's and Discovery Service's own `application.yaml`. Full write-up:
+[observability.md](observability.md).
+
+| Key | Value | Meaning |
+|---|---|---|
+| `management.endpoints.web.exposure.include` | `health,info,metrics,prometheus` | An allowlist. `env`, `configprops` and `heapdump` stay off — they print configuration values |
+| `management.endpoint.health.show-details` | `always` | Component health, unauthenticated. Acceptable only because the endpoint is not routed at the gateway |
+| `management.metrics.tags.application` | `${spring.application.name}` | The common tag every dashboard groups by |
+| `management.metrics.distribution.percentiles-histogram.http.server.requests` | `true` | Emits histogram buckets. Without it there is no p95 — and it is not retroactive |
+| `management.metrics.distribution.slo.http.server.requests` | `100ms,200ms,500ms,1s,2s` | Extra buckets at the boundaries that are actually judged |
+| `server.tomcat.mbeanregistry.enabled` | `true` (servlet services) | Tomcat publishes pool counters through JMX only; without it `tomcat_threads_*` does not exist |
+
+The gateway adds the same histogram and SLO keys for
+`spring.cloud.gateway.requests`. That metric needs no enabling property — it
+appears as soon as actuator is on the classpath.
 
 ### user-service
 
@@ -293,6 +316,8 @@ are in [../dev-log/README.md](../dev-log/README.md).
 | 8888 | Config Server | yes | Serves every service's configuration, secrets included |
 | 3306 | MySQL | `MYSQL_PORT` | root/root |
 | 5672 / 15672 | RabbitMQ / management UI | yes | guest/guest |
+| 9090 | Prometheus | `PROMETHEUS_PORT` | `observability` profile only. Unauthenticated |
+| 3001 → 3000 | Grafana | `GRAFANA_PORT` | `observability` profile only. Anonymous read, `admin`/`admin` to edit |
 
 For a demonstration on a laptop this is convenient. On any shared network, only
 5173 and 8080 should be published; the rest belong inside the Docker network.
@@ -309,6 +334,11 @@ For a demonstration on a laptop this is convenient. On any shared network, only
 | `FRONTEND_URL`, `IMAGE_BASE_URL` | Restart the consuming services; rebuild the frontend if the port changed |
 | A file under `config-server/…/config/` | **Rebuild config-server**, then restart the services that read it |
 | `MYSQL_PORT` | `docker compose up -d mysql` — host binding only |
+| `PROMETHEUS_PORT`, `GRAFANA_PORT` | `docker compose --profile observability up -d` — host bindings only |
+| A dashboard JSON under `backend/observability/grafana/dashboards/` | Nothing — the provisioner reloads it within 30s |
+| `backend/observability/prometheus/*.yml` or `rules/*.yml` | `curl -X POST localhost:9090/-/reload`, or restart the container |
+| A `management.*` key for user, product, order or notification | Rebuild config-server, restart that service |
+| A `management.*` key for the gateway, config or discovery service | Rebuild and restart that service |
 | `SPRING_PROFILES_ACTIVE` | Restart everything; note the database changes with it |
 | A gateway route or security rule | Rebuild and restart api-gateway |
 | `backend/init-db/*.sql` | Only ever runs on a **fresh** volume — `docker compose down -v` first |

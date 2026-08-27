@@ -83,6 +83,16 @@ address each other by service name (`api-gateway`, `mysql`, `rabbitmq`,
 | `mysql` | 3306 | 3306 |
 | `rabbitmq` | 5672, 15672 | 5672, 15672 |
 | `db-seed` | — | — (one-shot, profile `seed`) |
+| `prometheus` | `${PROMETHEUS_PORT:-9090}` | 9090 (profile `observability`) |
+| `grafana` | `${GRAFANA_PORT:-3001}` | 3000 (profile `observability`) |
+
+Two more containers join the same network when the `observability` profile is
+on: `prometheus`, which scrapes `/actuator/prometheus` on all seven JVMs every
+10 seconds, and `grafana`, which reads only from Prometheus. Neither declares
+`depends_on` against the business services — those are in the `prod` profile,
+and a cross-profile dependency breaks when `observability` is started alone.
+Prometheus simply retries a target it cannot reach. See
+[observability.md](observability.md).
 
 ---
 
@@ -238,6 +248,8 @@ is absent and returns `502` for API paths until it appears.
 | One backend service | `docker compose build <service> && docker compose up -d <service>` |
 | Everything | `docker compose up --build` |
 | Load the demo catalogue | `docker compose --profile seed up db-seed` |
+| Start metrics alongside a running stack | `docker compose --profile observability up -d` |
+| Reload the Prometheus scrape config | `curl -X POST http://localhost:9090/-/reload` |
 | Reset the database | `docker compose down -v` (drops `techzone_mysql_data`, so `init-db/` re-runs) |
 
 ---
@@ -246,6 +258,7 @@ is absent and returns `502` for API paths until it appears.
 
 - [running-locally.md](running-locally.md) — startup procedure and environment variables
 - [database-seeding.md](database-seeding.md) — database creation and the catalogue seeder
+- [observability.md](observability.md) — the `observability` profile, what it scrapes, and the dashboards it serves
 - [../frontend/overview.md](../frontend/overview.md) — SPA stack and structure
 - [../backend/services/api-gateway.md](../backend/services/api-gateway.md) — routes, CORS, JWT enforcement
 - [../architecture/system-overview.md](../architecture/system-overview.md) — services and request flow

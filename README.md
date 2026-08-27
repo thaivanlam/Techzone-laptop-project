@@ -39,6 +39,7 @@ built for the graduation thesis <i>“Laptop E-commerce Platform Using Microserv
 | 📬 | **Asynchronous email** over RabbitMQ — registration and order confirmation | [notification-service.md](docs/backend/services/notification-service.md) |
 | 📊 | **Admin dashboard** with Chart.js analytics, MUI DataGrid CRUD, and image upload | [frontend/overview.md](docs/frontend/overview.md) |
 | 🐳 | **One command to run everything** — SPA and API served from a single origin | [docker-setup.md](docs/operations/docker-setup.md) |
+| 📈 | **Metrics on every service** — Micrometer → Prometheus, two provisioned Grafana dashboards, and JMeter load plans to drive them | [observability.md](docs/operations/observability.md) |
 | 📚 | **Documentation kept with the code** — ADRs, defect register, development log | [`docs/`](docs) |
 
 ---
@@ -313,6 +314,8 @@ repository.
 | 🧭 Eureka dashboard | <http://localhost:8761> |
 | 🐇 RabbitMQ management | <http://localhost:15672> |
 | ⚙️ Config Server | <http://localhost:8888> |
+| 📈 Grafana *(`observability` profile)* | <http://localhost:3001> |
+| 🔥 Prometheus *(`observability` profile)* | <http://localhost:9090> |
 | 📘 Swagger UI *(dev profile only)* | <http://localhost:8080/user-manager/swagger-ui.html> |
 
 Demo accounts, created on first startup by each service's `CommandLineRunner`:
@@ -344,6 +347,7 @@ Techzone-laptop-project/
 │   ├── order-service/        #   :8083  cart, orders, Stripe
 │   └── notification-service/ #   :8084  RabbitMQ → SMTP
 ├── 🎨 frontend/              # submodule — React 19 + Redux Toolkit + Tailwind v4
+├── 🧪 tests/                 # system, acceptance, frontend-unit and JMeter load suites
 ├── 📚 docs/                  # consolidated documentation for both submodules
 ├── 🐳 docker-compose.yml     # the full stack on one network
 └── 📄 CHANGELOG.md           # user-visible changes, Keep a Changelog format
@@ -373,6 +377,8 @@ full set and records the rules that keep it in step with the code.
 | 🚀 | Startup modes, environment variables, seeded users | [operations/running-locally.md](docs/operations/running-locally.md) |
 | 🐳 | Compose topology, images, nginx proxy | [operations/docker-setup.md](docs/operations/docker-setup.md) |
 | 🌱 | Database creation and catalogue seeding | [operations/database-seeding.md](docs/operations/database-seeding.md) |
+| 📈 | Metrics, dashboards, and how to read a load run | [operations/observability.md](docs/operations/observability.md) |
+| ⏱ | Load and stress testing: workloads, stages, thresholds | [quality/performance-testing.md](docs/quality/performance-testing.md) |
 | 📓 | How each change came about, session by session | [dev-log/](docs/dev-log/) |
 
 ---

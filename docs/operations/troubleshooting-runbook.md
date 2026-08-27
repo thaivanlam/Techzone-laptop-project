@@ -123,6 +123,7 @@ database problem.
 | The shop shows an error instead of an empty catalogue | Empty catalogue (`BUG-04`) — seed it, [database-seeding.md](database-seeding.md) |
 | Creating a product fails on a duplicate key | `product_seq` was not raised after seeding — [§8](#8-runbook--database-problems) |
 | Container name conflicts on `up` | Root and `backend/` Compose projects both running — bring one down |
+| Grafana panels empty, or a Prometheus target `DOWN` | [observability.md](observability.md#11-when-there-is-no-data) |
 
 ---
 

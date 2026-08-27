@@ -24,6 +24,7 @@ Frontend-specific decisions were never part of this file and remain in
 | Why do orders embed product data instead of referencing it? | [ADR-0007](decisions/0007-embedded-product-snapshot.md) |
 | Why does one MySQL container serve three databases? | [ADR-0008](decisions/0008-single-mysql-multiple-databases.md) |
 | Why RestTemplate rather than Feign or WebClient? | [ADR-0009](decisions/0009-resttemplate-for-service-calls.md) |
+| Why Prometheus and Grafana, and why JMeter for load? | [ADR-0010](decisions/0010-prometheus-grafana-metrics.md) |
 
 ## Recording a new decision
 

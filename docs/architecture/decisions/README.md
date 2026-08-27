@@ -26,6 +26,7 @@ New decision? Copy [`template.md`](template.md) to the next free number.
 | [0007](0007-embedded-product-snapshot.md) | Embed a ProductSnapshot in order and cart items | Accepted | order-service |
 | [0008](0008-single-mysql-multiple-databases.md) | Run one MySQL instance holding three logical databases | Accepted | user, product, order, Compose |
 | [0009](0009-resttemplate-for-service-calls.md) | Call Product Service from Order Service with RestTemplate | Accepted | order-service, product-service |
+| [0010](0010-prometheus-grafana-metrics.md) | Measure the platform with Micrometer, Prometheus and Grafana | Accepted | all services, Compose, `tests/load/` |
 
 ## Reading them together
 

@@ -131,11 +131,35 @@ tables. Two mechanisms bridge the boundary:
 - `getAllSellerOrders` loads all orders into memory before filtering
   (in-memory pagination).
 
+## Observability
+
+Every service exposes a Micrometer registry at `/actuator/prometheus`. A
+Prometheus container scrapes all seven every 10 seconds and a Grafana
+container serves two provisioned dashboards — a service overview and a
+per-endpoint view of the ordering and catalogue APIs. Both are behind the
+`observability` Compose profile, so they are opt-in:
+
+```bash
+COMPOSE_PROFILES=prod,observability docker compose up -d
+```
+
+The load side is JMeter, in [`tests/load/`](../../tests/load/README.md): two
+plans — catalogue browsing and cart-to-order — run at smoke, load, stress and
+spike stages. The JMeter report says what the client saw; the dashboards say
+what the server was doing at the time.
+
+Detail: [../operations/observability.md](../operations/observability.md) and
+[../quality/performance-testing.md](../quality/performance-testing.md). The
+trade-offs are [ADR-0010](decisions/0010-prometheus-grafana-metrics.md).
+
 ## Roadmap
 
 - Resilience4j circuit breaker for inter-service calls
-- Prometheus + Grafana for observability
 - Centralized logging (ELK or Loki)
+- Distributed tracing (Micrometer Tracing into Tempo or Jaeger), which the
+  metrics instrumentation above already lays the groundwork for
 - Redis for a session/cache layer
 - Kubernetes deployment manifests
-- Load testing with JMeter (Smoke → Load → Stress → Spike)
+- A full-stack load run recorded against the thresholds in
+  [../quality/performance-testing.md](../quality/performance-testing.md) —
+  the harness is in place, the numbers are not

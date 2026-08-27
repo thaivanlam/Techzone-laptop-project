@@ -67,6 +67,7 @@ originates in either submodule is mirrored and maintained here.
 | [quality/test-plan.md](quality/test-plan.md) | The QA plan: objectives, the four levels and what each covers, environments, tooling, how to run every suite, entry and exit criteria, risk-based priorities, the characterisation-test convention, and what is deliberately not covered |
 | [quality/test-cases.md](quality/test-cases.md) | 97 test cases with steps, expected results and traceability to requirements |
 | [quality/test-report.md](quality/test-report.md) | Validation report: runs recorded, suite inventory, coverage gaps, what the suites found on their own, release readiness |
+| [quality/performance-testing.md](quality/performance-testing.md) | Load and stress testing: the two JMeter workloads, the four stages, acceptance thresholds, procedure, recorded runs, and the bottlenecks predicted from the code |
 | [quality/uat-checklist.md](quality/uat-checklist.md) | The manual acceptance pass: interface, payment form, email, responsiveness, accessibility, with a sign-off block |
 | [quality/bug-taxonomy.md](quality/bug-taxonomy.md) | The twelve defect classes, each with the instance found here, and a classification of every entry in the defect register |
 
@@ -77,6 +78,7 @@ originates in either submodule is mirrored and maintained here.
 | [operations/docker-setup.md](operations/docker-setup.md) | Compose file layout, container topology, frontend image, nginx API proxy |
 | [operations/database-seeding.md](operations/database-seeding.md) | Entrypoint database creation, the one-shot catalogue seeder, `product_seq`, verification procedure |
 | [operations/configuration-reference.md](operations/configuration-reference.md) | Every environment variable, Config Server property and gateway rule, with when a change takes effect |
+| [operations/observability.md](operations/observability.md) | Metrics: what each service exposes, the Prometheus scrape and rules, the two Grafana dashboards, how to read a load run, and the security caveats |
 | [operations/troubleshooting-runbook.md](operations/troubleshooting-runbook.md) | Symptom index and step-by-step recovery runbooks, health checks, backup and restore, what to collect when escalating |
 
 ### End-User Guides
@@ -92,7 +94,7 @@ originates in either submodule is mirrored and maintained here.
 | Document | What it covers |
 |---|---|
 | [dev-log/README.md](dev-log/README.md) | Entry format, why the log is kept, what must never be written into it |
-| [dev-log/2026-08.md](dev-log/2026-08.md) | August 2026: superproject setup, docs consolidation, Compose stack, Stripe build-time key fix |
+| [dev-log/2026-08.md](dev-log/2026-08.md) | August 2026: superproject setup, docs consolidation, Compose stack, Stripe build-time key fix, self-service password change, metrics and load testing |
 
 ### Assets
 | Path | What it holds |

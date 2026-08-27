@@ -280,7 +280,7 @@ gateway. See [../backend/api-reference.md](../backend/api-reference.md).
 
 | ID | Requirement | Target | Status |
 |---|---|---|---|
-| **NFR-PRF-1** | A catalogue page returns quickly for a realistic catalogue | p95 < 500 ms at 1 000 products, measured at the gateway | Unverified — never load-tested |
+| **NFR-PRF-1** | A catalogue page returns quickly for a realistic catalogue | p95 < 500 ms at 1 000 products, measured at the gateway | Unverified — the load harness and the metrics to judge it exist ([performance-testing.md](../quality/performance-testing.md)), but no full-stack run is recorded |
 | **NFR-PRF-2** | Listing endpoints page in the database, never in memory | no unbounded `findAll` on a request path | Open — `BUG-17` |
 | **NFR-PRF-3** | Cart and checkout make a bounded number of cross-service calls | no per-line remote call where a batched call would do | Open — N+1 calls on cart operations |
 | **NFR-PRF-4** | Keyword search does not fire a request per keystroke | debounce ≥ 500 ms | Done — 700 ms |
@@ -329,6 +329,7 @@ gateway. See [../backend/api-reference.md](../backend/api-reference.md).
 | **NFR-OPS-2** | No environment-specific value is compiled into a service | configuration from the environment or Config Server | Partial — frontend values are inlined by Vite at build time |
 | **NFR-OPS-3** | Every service exposes a health endpoint the orchestrator uses | Actuator health | Done |
 | **NFR-OPS-4** | A request can be followed across services from the logs | correlation id | Open — no distributed tracing |
+| **NFR-OPS-5** | Latency, throughput and error rate are measurable per service and per endpoint, without changing application code | Micrometer → Prometheus, dashboards in Grafana | Done — the `observability` Compose profile, see [../operations/observability.md](../operations/observability.md) |
 
 ---
 

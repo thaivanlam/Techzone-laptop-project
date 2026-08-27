@@ -49,6 +49,13 @@ cp .env.example .env      # in the repo root, then fill in the secrets
 docker compose up --build
 ```
 
+To bring the metrics stack up with it, add the `observability` profile — two
+more containers, Prometheus and Grafana, and nothing else changes:
+
+```bash
+COMPOSE_PROFILES=prod,observability docker compose up --build
+```
+
 Open http://localhost:5173. The SPA is served by nginx, which reverse-proxies
 `/user-manager`, `/product-manager`, and `/order-manager` to `api-gateway:8080`
 inside the Docker network — the browser only ever talks to one origin, so no
@@ -65,7 +72,7 @@ dependencies, so expect several minutes. Later runs are cached.
 | Variable | Default in `.env.example` | Meaning |
 |---|---|---|
 | `SPRING_PROFILES_ACTIVE` | `prod` | Which Config Server profile the services load (`<service>-<profile>.yml`). `dev` points at `localhost`; `prod` points at Docker network hostnames. |
-| `COMPOSE_PROFILES` | `prod` | Which containers Compose starts. `prod` starts the whole stack; empty starts **infrastructure only**; add `seed` (`prod,seed`) to also run the demo-catalogue seeder. |
+| `COMPOSE_PROFILES` | `prod` | Which containers Compose starts. `prod` starts the whole stack; empty starts **infrastructure only**; add `seed` (`prod,seed`) to also run the demo-catalogue seeder, and `observability` for Prometheus and Grafana. |
 | `STRIPE_SECRET_KEY` | — | Required by Order Service for payments |
 | `MAIL_PASSWORD` | — | Gmail app password, required by Notification Service |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | — | Stripe key baked into the frontend bundle **at build time** |
@@ -75,6 +82,9 @@ dependencies, so expect several minutes. Later runs are cached.
 | `API_GATEWAY_URL` | `http://api-gateway:8080` | Where the frontend container forwards proxied calls. **Run time** — no rebuild needed. |
 | `IMAGE_BASE_URL` | `http://localhost:5173/product-manager/images` | Base URL Product Service returns for product images; routed through the frontend origin |
 | `MYSQL_PORT` | `3306` | Host port for the MySQL container. Raise it (for example `3307`) when a native MySQL already holds 3306 — services always use `mysql:3306` inside the network. |
+| `PROMETHEUS_PORT` | `9090` | Host port for Prometheus. Only used with the `observability` profile. |
+| `GRAFANA_PORT` | `3001` | Host port for Grafana. Not 3000 — that stays free for a frontend dev server, which the gateway allows as a CORS origin. |
+| `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | `admin` / `admin` | Grafana's administrator account. Viewing is anonymous; editing is not. |
 
 The two profile variables must agree. Setting `COMPOSE_PROFILES=prod` while
 `SPRING_PROFILES_ACTIVE=dev` starts containers that try to reach `localhost`
@@ -170,10 +180,14 @@ The frontend runs on the Vite dev server exactly as in Mode 2.
 | RabbitMQ management | http://localhost:15672 (guest / guest) |
 | Config Server | http://localhost:8888 |
 | MySQL | localhost:3306 (root / root) |
+| Grafana (`observability` profile) | http://localhost:3001 — anonymous read; `admin` / `admin` to edit |
+| Prometheus (`observability` profile) | http://localhost:9090 — targets at `/targets`, alerts at `/alerts` |
 | Swagger UI (dev only) | http://localhost:8080/user-manager/swagger-ui.html |
 
 Swagger is disabled under the `prod` profile
-(`springdoc.api-docs.enabled: false`).
+(`springdoc.api-docs.enabled: false`). The last two rows only exist when
+Compose was started with the `observability` profile — see
+[observability.md](observability.md).
 
 ---
 
