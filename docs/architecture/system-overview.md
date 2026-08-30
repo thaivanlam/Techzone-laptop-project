@@ -160,6 +160,13 @@ trade-offs are [ADR-0010](decisions/0010-prometheus-grafana-metrics.md).
   metrics instrumentation above already lays the groundwork for
 - Redis for a session/cache layer
 - Kubernetes deployment manifests
-- A full-stack load run recorded against the thresholds in
-  [../quality/performance-testing.md](../quality/performance-testing.md) —
-  the harness is in place, the numbers are not
+- Retry and health-checked load balancing at the gateway. Measured on
+  2026-08-29: replacing one service container costs about twenty seconds in
+  which most requests to its route answer 503
+  ([BUG-23](../backend/known-defects.md#bug-23--replacing-a-service-instance-blackholes-its-route-for-about-twenty-seconds))
+- The spike stage, a catalogue of a thousand products, and a load generator on
+  a separate machine. The capacity ramp of 2026-08-29 put the read path's knee
+  at ~2 100 req/s — but that is where this 12-core host ran out of CPU with
+  JMeter sharing it, so it is a floor for the platform's capacity, not a
+  measurement of it —
+  [../quality/performance-testing.md](../quality/performance-testing.md)

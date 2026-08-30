@@ -546,14 +546,16 @@ Stated plainly, so nobody mistakes a gap for a guarantee.
 - **RabbitMQ end to end.** Publishing is verified with a test double; that a
   message is consumed and turned into an email is not automated. A
   `RabbitMQContainer` under Testcontainers would close this.
-- **Soak and volume.** Load testing itself is no longer a gap — the JMeter
-  plans in [`tests/load/`](../../tests/load/README.md) and the metrics they are
-  read against are described in
-  [performance-testing.md](performance-testing.md). What is still missing is a
-  run: no full-stack measurement has been recorded, so `NFR-PRF-1` remains
-  unverified. Nothing runs for hours either, so a slow leak would go unnoticed,
-  and the seeded catalogue is far too small for the defects that only bite at
-  thousands of rows — `BUG-17`'s in-memory paging among them.
+- **Soak, volume, and everything above 20 concurrent users.** Load testing
+  itself is no longer a gap: the JMeter plans in
+  [`tests/load/`](../../tests/load/README.md) ran against the full stack on
+  2026-08-29 and are recorded in
+  [performance-testing.md](performance-testing.md). What that run did *not*
+  do is find a limit — nothing saturated — so the stress and spike stages are
+  still outstanding. Nothing runs for hours either, so a slow leak would go
+  unnoticed, and the seeded catalogue (14 products) is far too small for the
+  defects that only bite at thousands of rows — `BUG-17`'s in-memory paging
+  among them, and `NFR-PRF-1`, which asks for a thousand.
 - **Concurrency.** `BUG-02` (concurrent checkout overselling the last unit) and
   `BUG-21` (concurrent adds permanently breaking a cart) are both documented but
   neither is reproduced by a test. Doing so reliably needs a controlled

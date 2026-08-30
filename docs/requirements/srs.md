@@ -280,7 +280,7 @@ gateway. See [../backend/api-reference.md](../backend/api-reference.md).
 
 | ID | Requirement | Target | Status |
 |---|---|---|---|
-| **NFR-PRF-1** | A catalogue page returns quickly for a realistic catalogue | p95 < 500 ms at 1 000 products, measured at the gateway | Unverified — the load harness and the metrics to judge it exist ([performance-testing.md](../quality/performance-testing.md)), but no full-stack run is recorded |
+| **NFR-PRF-1** | A catalogue page returns quickly for a realistic catalogue | p95 < 500 ms at 1 000 products, measured at the gateway | Partial — measured at 61 ms p95 under 20 concurrent users on 2026-08-29, but against a 14-product catalogue, so the target scale is still unverified ([performance-testing.md](../quality/performance-testing.md)) |
 | **NFR-PRF-2** | Listing endpoints page in the database, never in memory | no unbounded `findAll` on a request path | Open — `BUG-17` |
 | **NFR-PRF-3** | Cart and checkout make a bounded number of cross-service calls | no per-line remote call where a batched call would do | Open — N+1 calls on cart operations |
 | **NFR-PRF-4** | Keyword search does not fire a request per keystroke | debounce ≥ 500 ms | Done — 700 ms |
