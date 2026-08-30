@@ -24,6 +24,12 @@
             <stringProp name="Argument.value">${__P(gateway.port,8080)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
+          <elementProp name="paymentMethod" elementType="Argument">
+            <stringProp name="Argument.name">paymentMethod</stringProp>
+            <stringProp name="Argument.value">${__P(payment.method,online)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">The value the SPA sends. It is a free-text string the service only stores - nothing branches on it and Stripe is not called. Do not shorten it: Payment.paymentMethod carries @Size(min = 4), the check runs at persist time rather than on the request, and anything shorter (the "cod" the system suite uses) fails the whole order with 500 instead of 400. See BUG-22 in docs/backend/known-defects.md.</stringProp>
+          </elementProp>
           <elementProp name="shopperPassword" elementType="Argument">
             <stringProp name="Argument.name">shopperPassword</stringProp>
             <stringProp name="Argument.value">${__P(shopper.password,LoadTest1)}</stringProp>
@@ -276,7 +282,7 @@
               <boolProp name="IfController.useExpression">true</boolProp>
             </IfController>
             <hashTree>
-              <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="05 POST place order (cash on delivery)" enabled="true">
+              <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="05 POST place order" enabled="true">
                 <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
                 <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
                   <collectionProp name="Arguments.arguments">
@@ -287,7 +293,7 @@
                     </elementProp>
                   </collectionProp>
                 </elementProp>
-                <stringProp name="HTTPSampler.path">/order-manager/api/order/users/payments/cod</stringProp>
+                <stringProp name="HTTPSampler.path">/order-manager/api/order/users/payments/${paymentMethod}</stringProp>
                 <stringProp name="HTTPSampler.method">POST</stringProp>
                 <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
                 <boolProp name="HTTPSampler.auto_redirects">false</boolProp>

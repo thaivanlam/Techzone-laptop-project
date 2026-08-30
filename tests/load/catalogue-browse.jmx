@@ -29,6 +29,12 @@
             <stringProp name="Argument.value">${__P(page.size,12)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
+          <elementProp name="pageMax" elementType="Argument">
+            <stringProp name="Argument.name">pageMax</stringProp>
+            <stringProp name="Argument.value">${__P(page.max,1)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Highest page number to ask for. It must match the catalogue actually loaded: asking past the last page is answered 400 "No Products Exist!!!" (BUG-04), which would be counted as an error and would measure the exception path instead of the query. Default 1 suits the 14-product demo catalogue at pageSize 12; raise it with a bigger catalogue.</stringProp>
+          </elementProp>
         </collectionProp>
       </Arguments>
       <hashTree/>
@@ -100,7 +106,7 @@
               <elementProp name="pageNumber" elementType="HTTPArgument">
                 <boolProp name="HTTPArgument.always_encode">true</boolProp>
                 <stringProp name="Argument.name">pageNumber</stringProp>
-                <stringProp name="Argument.value">${__Random(0,4)}</stringProp>
+                <stringProp name="Argument.value">${__Random(0,${pageMax})}</stringProp>
                 <stringProp name="Argument.metadata">=</stringProp>
                 <boolProp name="HTTPArgument.use_equals">true</boolProp>
               </elementProp>
@@ -201,11 +207,36 @@
           </ResponseAssertion>
           <hashTree/>
         </hashTree>
+        <!-- Search is measured through the `keyword` filter on the listing
+             endpoint, which is the path the SPA's search box actually takes.
+             The dedicated /products/keyword/{keyword} endpoint is NOT sampled
+             here: it answers a successful search with 302 FOUND and no Location
+             header (BUG-12), and JMeter's HTTP implementation rejects such a
+             response at transport level - "Missing location header in redirect"
+             - before any sampler setting can intervene. Following redirects is
+             off or on makes no difference; the endpoint simply cannot be load
+             tested with this tool until BUG-12 is fixed. See
+             docs/quality/performance-testing.md. -->
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="04 GET keyword search" enabled="true">
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
-            <collectionProp name="Arguments.arguments"/>
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="keyword" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                <stringProp name="Argument.name">keyword</stringProp>
+                <stringProp name="Argument.value">${keyword}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+              </elementProp>
+              <elementProp name="pageSize" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                <stringProp name="Argument.name">pageSize</stringProp>
+                <stringProp name="Argument.value">${pageSize}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+                <boolProp name="HTTPArgument.use_equals">true</boolProp>
+              </elementProp>
+            </collectionProp>
           </elementProp>
-          <stringProp name="HTTPSampler.path">/product-manager/api/public/products/keyword/${keyword}</stringProp>
+          <stringProp name="HTTPSampler.path">/product-manager/api/public/products</stringProp>
           <stringProp name="HTTPSampler.method">GET</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
@@ -213,14 +244,14 @@
           <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
         </HTTPSamplerProxy>
         <hashTree>
-          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="200 or 404" enabled="true">
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="200, or 400 for no match" enabled="true">
             <collectionProp name="Asserion.test_strings">
-              <stringProp name="1815">^(200|404)$</stringProp>
+              <stringProp name="1815">^(200|400)$</stringProp>
             </collectionProp>
             <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
             <boolProp name="Assertion.assume_success">false</boolProp>
             <intProp name="Assertion.test_type">1</intProp>
-            <stringProp name="Assertion.custom_message">Keyword search answered neither 200 nor a clean 404. A keyword that matches nothing is a 404 by design, not a failure.</stringProp>
+            <stringProp name="Assertion.custom_message">Keyword search answered neither 200 nor 400. The 400 pins current, defective behaviour: a search that matches nothing is answered 400 "No Products Exist!!!" rather than an empty page (BUG-04). Keep data/search-keywords.csv matching the seeded catalogue so that 400 stays rare - a run full of them measures the exception path, not the query.</stringProp>
           </ResponseAssertion>
           <hashTree/>
         </hashTree>

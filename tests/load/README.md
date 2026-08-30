@@ -84,6 +84,24 @@ Anything after the stage is passed to JMeter unchanged:
 ./run.sh order-checkout load -Jthreads=50 -Jgateway.host=another-host -Jplace.orders=false
 ```
 
+### Finding where it bends
+
+The four stages below answer "how does it behave at this load". To find the
+saturation point, run the same plan repeatedly changing **one** variable —
+first threads at a fixed think time, then threads again with think time off,
+which concentrates load without making the generator the bottleneck:
+
+```bash
+for n in 20 50 200 800; do ./run.sh catalogue-browse load --no-report -Jthreads=$n -Jrampup=20 -Jduration=150; done
+for n in 100 200 500; do ./run.sh catalogue-browse load --no-report -Jthreads=$n -Jrampup=15 -Jduration=120 -Jthink.time=0 -Jthink.range=0; done
+```
+
+The knee is the step where throughput stops rising while latency keeps
+growing. The one recorded in
+[../../docs/quality/performance-testing.md](../../docs/quality/performance-testing.md)
+is at roughly 2 100 req/s, where the Hikari pool pins at its default of 10 with
+up to 189 requests waiting.
+
 ### The four stages
 
 | Stage | Threads | Ramp | Duration | Think time | What it is for |
@@ -176,10 +194,33 @@ Runs worth keeping are written up in
 
 ---
 
+## What the plans deliberately avoid
+
+Two details in the plans exist because of defects, and both should be revisited
+when those defects are fixed:
+
+- **Search goes through `?keyword=` on the listing endpoint**, not through
+  `/products/keyword/{keyword}`. The dedicated endpoint answers a *successful*
+  search with `302 FOUND` and no `Location` header (**BUG-12**); JMeter rejects
+  that at transport level — "Missing location header in redirect" — so it
+  cannot be sampled at all. The filter is what the SPA's search box uses anyway.
+- **Checkout sends `payment.method=online`**, not `cod`. A payment method under
+  four characters fails the whole order with 500 at persist time (**BUG-22**,
+  found by the first load run). `online` is what the SPA sends.
+
+`data/search-keywords.csv` must also match the catalogue actually loaded, and
+`page.max` must match its page count: a keyword that matches nothing, or a page
+past the last one, is answered `400` (**BUG-04**), and a run full of those
+measures the exception path instead of the query.
+
+---
+
 ## Known shapes to expect
 
 These are predictions from the code, not measurements — the register of what
-was actually observed is in the performance document.
+was actually observed is in the performance document. The first load run
+(2026-08-29, 20 threads) saturated none of them: 4 busy Tomcat threads out of
+200, no connection ever waiting. They are expectations for the stress stage.
 
 - **Catalogue search degrades before plain listing.** The keyword and facet
   filters are `LIKE '%…%'` predicates over joined tables (**BUG-14**,
