@@ -10,7 +10,10 @@ each service's "Design Notes & Known Trade-offs" section.
 
 Audited: 2026-08-22, against `main`. BUG-19, BUG-20 and BUG-21 were added on
 2026-08-25: all three were found by writing and running the test suite, not by
-source reading.
+source reading. BUG-22 and BUG-23 were added on 2026-08-29, both found by load
+runs — the first two entries here that no amount of reading had turned up,
+because one only appears when an order is actually placed and the other only
+while a container is being replaced under traffic.
 
 ---
 
@@ -85,6 +88,8 @@ the project is demonstrated or extended.
 | [BUG-19](#bug-19--a-forged-jwt-signature-escapes-the-validity-check) | Medium | `SignatureException` uncaught: a forged token becomes a 500, not a 401 | gateway, product, order, user |
 | [BUG-20](#bug-20--the-cart-page-returns-500-for-a-customer-who-has-never-had-a-cart) | Medium | `getCart` dereferences a null cart, so every new customer's first cart view is a 500 | order-service |
 | [BUG-21](#bug-21--two-concurrent-adds-of-the-same-product-permanently-break-a-cart) | **High** | Check-then-insert with no unique constraint; a duplicated cart line bricks the account's cart for ever | order-service |
+| [BUG-22](#bug-22--a-payment-method-shorter-than-four-characters-fails-the-order-with-500) | Medium | A bean-validation constraint reached only at persist time turns a short payment method into an untyped 500, after stock was already decremented | order-service |
+| [BUG-23](#bug-23--replacing-a-service-instance-blackholes-its-route-for-about-twenty-seconds) | Medium | No retry and no health-checked load balancing: a replaced container costs about 20s in which most requests to that route answer 503 | gateway, all services |
 | [OPS-01](#6-low-and-hygiene) | Medium | Uploaded product images are lost on container recreation; `default.png` is backed by no file | product-service |
 | [OPS-02](#6-low-and-hygiene) | Medium | No upload allow-list, replaced files never deleted | product-service |
 | [OPS-03](#6-low-and-hygiene) | Low | jjwt version skew (0.12.6 vs 0.13.0) | product-service |
@@ -1053,6 +1058,140 @@ return mapToCartDTO(cart);
 **Regression tests:** `CartServiceImplTest.getCartThrowsWhenBuyerHasNoCart` and
 `tests/system/cart-and-checkout.test.js` (*"BUG-20: a customer who has never had
 a cart gets a 500"*) both pin the current behaviour.
+
+---
+
+### BUG-22 — A payment method shorter than four characters fails the order with 500
+
+**Found:** 2026-08-29, by the first full-stack load run. The JMeter checkout plan
+sent the same `cod` the system suite sends, and *every* order placed answered
+500.
+
+**Location:** `backend/order-service/.../model/Payment.java`
+
+```java
+@NotBlank
+@Size(min = 4, message = "Payment method must contain at least 4 characters")
+private String paymentMethod;
+```
+
+The value arrives as a **path variable** —
+`POST /api/order/users/payments/{paymentMethod}` — and nothing validates it on
+the way in. The constraint is only reached when Hibernate flushes the new
+`Payment`, so it surfaces as a `jakarta.validation.ConstraintViolationException`
+from inside the transaction:
+
+```
+Validation failed for classes [com.ecommerce.order_service.model.Payment]
+during persist time for groups [jakarta.validation.groups.Default, ]
+```
+
+`MyGlobalExceptionHandler` does not handle that exception type, so the response
+is an untyped **500** with no message the caller can act on — the same shape as
+[BUG-10](#bug-10--cross-service-exceptions-surface-as-untyped-500s).
+
+**Impact:** Any client that names the payment method in fewer than four
+characters loses the whole order. The SPA never hits it: it posts only to
+`/payments/online`. Two things that do:
+
+- the platform's own system and acceptance suites, which post `cod` — they were
+  written to expect `201` and are gated behind `RUN_DESTRUCTIVE=1`, so this had
+  never been executed (see [../quality/test-report.md](../quality/test-report.md),
+  "never executed: the 8 destructive cases");
+- any future client using a short code — `cod`, `vnp`, `qr`.
+
+Worse than the rejection is *where* it happens: stock has already been
+decremented in product-service by the time the flush fails
+([BUG-01](#bug-01--a-failed-multi-line-order-leaves-stock-permanently-decremented) is the
+same window), so a refused order still costs inventory.
+
+**Reproduction:**
+
+```bash
+# with a product in the cart, signed in
+curl -X POST http://localhost:8080/order-manager/api/order/users/payments/cod \
+  -H 'Content-Type: application/json' -b "springBootEcom=$TOKEN" \
+  -d '{"addressId":null,"pgName":"x","pgPaymentId":"y","pgStatus":"ok","pgResponseMessage":"z"}'
+# → 500, and order-service logs ConstraintViolationException at persist time
+```
+
+**Fix:** Validate the path variable at the boundary, where a bad value can still
+be answered with a 400 — `@Size(min = 4)` on the controller parameter with
+`@Validated` on the class — and decide what the field actually means. If short
+codes are legitimate, drop `min = 4`; the constraint looks arbitrary rather than
+derived from any rule stated anywhere. Either way, add
+`ConstraintViolationException` to `MyGlobalExceptionHandler` so a persist-time
+violation cannot leave the caller with an untyped 500.
+
+**Tests that must change with the fix:** the system and acceptance suites in
+[`tests/`](../../tests) assert `201` for `cod` and would then pass for the first
+time; `tests/load/order-checkout.jmx` sends `online` and carries a note pointing
+here.
+
+---
+
+### BUG-23 — Replacing a service instance blackholes its route for about twenty seconds
+
+**Found:** 2026-08-29, during the capacity ramp. `product-service` was recreated
+while a load run was in flight; the run recorded **86 421 failures in a
+20-second window — 87% then 92% of all requests — and full recovery
+afterwards**, with no intervention.
+
+**Location:** `backend/api-gateway/src/main/resources/application.yaml`
+(routes use `lb://PRODUCT-SERVICE` with no retry filter), and the Eureka client
+defaults every service inherits.
+
+The gateway resolves `lb://` through its cached Eureka registry. When a
+container is replaced, the new instance registers under a new IP, but the old
+registration survives:
+
+| Timer | Default | Effect |
+|---|---|---|
+| Eureka lease renewal | 30s | The dead instance keeps its lease until it expires |
+| Lease expiry | 90s | Eureka's own eviction |
+| Client registry fetch | 30s | The gateway does not see either change immediately |
+
+Between the container dying and the gateway noticing, Spring Cloud
+LoadBalancer round-robins across *both* instances and roughly half the
+requests go to an address nothing answers on. There is no retry filter, no
+health-check-based instance filtering (`spring.cloud.loadbalancer.health-check`
+is not configured), and no circuit breaker, so a failed hop is returned to the
+caller as **503** rather than retried against the surviving instance.
+
+**Impact:** Any ordinary operational action — a redeploy, a restart, an OOM
+kill, a `docker compose up -d` that recreates one service — costs a window in
+which most requests to that service fail. Measured here at 87–92% of requests
+for 20 seconds under load; a single instance per service means there is no
+healthy peer to absorb the traffic either. This is the concrete, measured form
+of the "no circuit breaker" limitation recorded in
+[../architecture/system-overview.md](../architecture/system-overview.md).
+
+**Reproduction:**
+
+```bash
+# with a load run in flight against the catalogue
+docker compose up -d --no-deps --force-recreate product-service
+# → ~20s of 503s from the gateway, then full recovery
+```
+
+**Fix:** Three independent steps, in increasing order of effort:
+
+1. Enable load-balancer health checks so the gateway stops choosing an
+   instance that fails its probe:
+   `spring.cloud.loadbalancer.health-check.initial-delay`,
+   `...health-check.interval`, and `eureka.client.registry-fetch-interval-seconds`
+   lowered from its default 30s.
+2. Add a retry filter to the routes for idempotent methods, so one dead hop is
+   retried against another instance instead of surfacing as a 503:
+   `filters: - name: Retry` with `retries`, `statuses: BAD_GATEWAY`,
+   `methods: GET`.
+3. Run more than one instance per service, which is what makes the first two
+   worth anything.
+
+**Note:** the window is a property of the defaults, not of Docker. The same
+gap appears on any deployment that replaces an instance, and it is the reason
+`NFR-REL-1` ("a briefly unavailable dependency degrades a feature rather than
+failing unrelated requests") is still open.
 
 ---
 
