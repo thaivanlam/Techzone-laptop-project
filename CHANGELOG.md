@@ -43,9 +43,13 @@ No version has been tagged yet. Everything below ships in the first release.
   anonymous catalogue browsing, and register-to-placed-order — runnable at
   smoke, load, stress and spike stages through `run.sh` / `run.ps1`, with an
   HTML report per run. The plan, thresholds and procedure are in
-  [`docs/quality/performance-testing.md`](docs/quality/performance-testing.md).
-  No full-stack run is recorded yet; the harness is verified, the numbers are
-  not.
+  [`docs/quality/performance-testing.md`](docs/quality/performance-testing.md),
+  together with the first recorded run: 11 060 samples at 20 concurrent users
+  across both plans, zero errors, and nothing close to saturation. The run also
+  found a new defect —
+  [`BUG-22`](docs/backend/known-defects.md#bug-22--a-payment-method-shorter-than-four-characters-fails-the-order-with-500):
+  an order placed with a payment method shorter than four characters fails with
+  500 after stock has already been decremented.
 - Self-service password change from **Profile → Security**, available to
   every role (customer, seller, admin). The current password is verified
   first, with a visible "Verifying…" / "Verified" state, before the new
