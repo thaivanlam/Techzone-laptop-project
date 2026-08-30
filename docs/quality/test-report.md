@@ -8,7 +8,8 @@ Strategy and how to run them: [test-plan.md](test-plan.md). Cases:
 [uat-checklist.md](uat-checklist.md). Defects:
 [../backend/known-defects.md](../backend/known-defects.md).
 
-**Report date:** 2026-08-25 · **Commit state:** working tree, backend submodule
+**Report date:** 2026-08-25, with the load runs of 2026-08-29 added as Runs C and D ·
+**Commit state:** working tree, backend submodule
 modified · **Environment:** local development machine
 
 ---
@@ -37,7 +38,7 @@ modified · **Environment:** local development machine
 | Failures outstanding | **0** |
 | Requirements with at least one automated case | 47 of 62 |
 | Cases pinning known-wrong behaviour | 21 |
-| Defects found *by* the suites | 3 (`BUG-19`, `BUG-20`, `BUG-21`) plus one stale deployment |
+| Defects found *by* the suites | 5 (`BUG-19`, `BUG-20`, `BUG-21` from the functional levels; `BUG-22` and `BUG-23` from the load runs) plus one stale deployment |
 | Open Critical defects | 5 |
 
 Every level is green. That is not the same as the platform being sound: five
@@ -49,7 +50,7 @@ contradict the specification on purpose — see
 
 ## 2. Runs Recorded
 
-Two runs are recorded here. They differ in what was available, and the
+Four runs are recorded here. They differ in what was available, and the
 distinction matters when reading a result.
 
 ### Run A — offline levels, re-run for this report
@@ -110,6 +111,82 @@ as re-observed: the live levels have not been re-run since.
 docker compose build && COMPOSE_PROFILES=prod,seed docker compose up -d
 cd tests && npm run preflight && npm test
 ```
+
+---
+
+### Run C — load stage, both JMeter plans, 2026-08-29
+
+The first run of the fifth level. Not a pass/fail suite: it produces numbers,
+judged against the thresholds in
+[performance-testing.md §5](performance-testing.md#5-acceptance-thresholds).
+
+| Plan | Threads | Duration | Samples | Errors | Throughput |
+|---|---|---|---|---|---|
+| `catalogue-browse` | 20 | 5 min | 5 583 | 0 | 19.6 req/s |
+| `order-checkout` | 20 | 5 min | 5 477 | 0 | 19.2 req/s |
+
+Every threshold passed with a wide margin (catalogue p95 61 ms against a 500 ms
+budget; place-order p95 102 ms against 2 s; zero 5xx in 11 060 samples) and
+nothing saturated — 4 busy Tomcat threads of 200, no database connection ever
+waiting. The full tables, the server-side view from Prometheus and the caveats
+are in
+[performance-testing.md §7](performance-testing.md#7-recorded-runs).
+
+**What it found.** One new defect and two confirmations, all three invisible to
+the four functional levels:
+
+- **`BUG-22` (new)** — every order placed with the payment method `cod`
+  answered 500. `Payment.paymentMethod` carries `@Size(min = 4)`, checked only
+  at persist time, so a three-character method fails the transaction *after*
+  stock has been decremented. This is the value the system and acceptance
+  suites send: their eight destructive cases are written to expect `201` and,
+  never having been executed (§1), had never contradicted it. They would fail
+  today.
+- **`BUG-12` confirmed, and worse than the register recorded it.** JMeter
+  cannot sample `GET /products/keyword/{keyword}` at all — a 302 with no
+  `Location` header is rejected by its HTTP layer before any setting applies.
+- **`BUG-04` confirmed** — a page past the last one, or a keyword matching
+  nothing, answers 400 rather than an empty page.
+
+**To reproduce it**, with the stack rebuilt and the `observability` profile up:
+
+```bash
+cd tests/load
+./run.sh catalogue-browse smoke      # always first
+./run.sh catalogue-browse load
+./run.sh order-checkout load
+```
+
+---
+
+### Run D — capacity ramp, 2026-08-29
+
+Seven steps on `catalogue-browse` and one on `order-checkout`, raising
+concurrency until throughput stopped rising. Full tables in
+[performance-testing.md §7](performance-testing.md#7-recorded-runs).
+
+| | Result |
+|---|---|
+| Knee | ~**2 100 req/s** on the read path; ~570 req/s on the ordering path |
+| Behaviour past the knee | Throughput flat across a 5× increase in concurrency; p95 grew 111 → 256 → 447 ms |
+| First resource to saturate | HikariCP pool at its default of **10**, with up to **189** requests waiting |
+| Second | Tomcat, 200 of 200 threads busy |
+| Errors | **None at any step** — no 5xx, no connection timeout |
+| Actual ceiling | Host CPU: ~9.3 of 12 cores across product-service, MySQL and the gateway, before counting the load generator |
+
+Raising the pool to 50 and repeating the same step cut p95 by a fifth and left
+throughput unchanged, which is what identifies the pool as the queueing point
+rather than the limit.
+
+**What it found.** `BUG-23`: recreating a service container mid-run caused
+86 421 failures over twenty seconds — 87–92% of requests to that route — with
+no retry and no health-checked load balancing to absorb them, then full
+recovery. A routine redeploy currently costs a twenty-second outage on the
+route it touches.
+
+It also **contradicted a prediction**: the platform does not fail under stress,
+it queues. Latency grows without bound and no request is ever rejected, so a
+client with a timeout experiences failure while the server records success.
 
 ---
 

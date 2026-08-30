@@ -11,9 +11,11 @@ The plans live in [`tests/load/`](../../tests/load/README.md); the metrics
 they are read against are described in
 [../operations/observability.md](../operations/observability.md).
 
-**Status:** the harness and the instrumentation are in place and verified
-against a stub gateway. **No full-stack run has been recorded yet** — §7 is
-deliberately empty rather than filled with numbers nobody measured.
+**Status:** the harness and the instrumentation are in place, and the first
+full-stack run at the load stage is recorded in §7 — 11 060 samples, zero
+errors, three defects confirmed (one of them new). The stress and spike stages
+have not been run, and `NFR-PRF-1` is still unverified: it asks for 1 000
+products and the seeded catalogue holds 14.
 
 ---
 
@@ -97,6 +99,41 @@ Spike is as much about the recovery as the peak. Latency during the spike is
 expected to be bad; what matters is whether throughput returns to its previous
 plateau afterwards, or whether something stays broken.
 
+### The capacity ramp
+
+The four stages answer "how does it behave at *this* load". Finding the point
+where it bends needs a different instrument: the same plan run repeatedly with
+**one variable changed and everything else held**, until throughput stops
+rising.
+
+```bash
+# hold think time, raise threads — this measures "more users"
+for n in 20 50 200 800; do
+  ./run.sh catalogue-browse load --no-report -Jthreads=$n -Jrampup=20 -Jduration=150
+done
+
+# then drop think time to zero and raise threads again — this concentrates the
+# same offered load into far fewer threads, so the generator stays out of the way
+for n in 100 200 500; do
+  ./run.sh catalogue-browse load --no-report \
+    -Jthreads=$n -Jrampup=15 -Jduration=120 -Jthink.time=0 -Jthink.range=0
+done
+```
+
+Two rules make the result readable:
+
+- **Change one thing per step.** The canned `stress` stage changes threads
+  *and* think time at once, which is fine for "is it still alive at 100 users"
+  and useless for locating a knee.
+- **Read the plateau, not the run.** Discard the first quarter of each step:
+  it contains the ramp, JIT warm-up and a cold buffer pool. In the ramp
+  recorded in §7 the platform was three times *faster* at 800 threads than at
+  20, purely because it had warmed up.
+
+The knee is the step where throughput stops rising while latency keeps
+growing. What is saturated at that step is the finding; everything after it is
+queueing.
+
 ---
 
 ## 4. Environment, and what it invalidates
@@ -153,8 +190,8 @@ to write up here; passing 1s is a problem to go and look at now.
 
 4xx is excluded from the error budget on purpose. A `400` from add-to-cart
 once a stress run has bought the seeded stock out is the platform working
-correctly, and so is a `404` from a keyword that matches nothing. Only 5xx
-counts as failure.
+correctly, and so is the `400` a keyword matching nothing produces — though
+that one is `BUG-04` rather than good manners. Only 5xx counts as failure.
 
 A run that misses a threshold is not automatically a defect: it is a finding
 that names *which* resource ran out. The saturation panel that flattened first
@@ -188,44 +225,254 @@ is the finding; the latency number is the symptom.
 
 ## 7. Recorded runs
 
-*None yet.*
+### 2026-08-29 — first full-stack run, both plans, load stage
 
-The plans and the dashboards were verified against a stub gateway rather than
-the live stack: both plans parse, both drive every sampler, the JSON
-extractors and branching controllers behave, and no sampler failed. That
-proves the harness, not the platform.
+**Environment.** Windows laptop, Docker Desktop; the stack and the load
+generator shared the machine, so these are *comparison* numbers, not capacity
+numbers (§4). Compose profiles `prod,seed,observability`, images rebuilt from
+the working tree that added the metrics; JMeter 5.6.3 on JDK 25. The seeded
+catalogue holds **14 products**, and stock was raised to 5 000 per product
+first so the run would measure ordering rather than the sold-out path (§9).
 
-When the first real run happens, each entry belongs here in this shape:
+| Run | Plan | Threads | Duration | Samples | Errors | Throughput (plateau) |
+|---|---|---|---|---|---|---|
+| A | `catalogue-browse` | 20 | 5 min | 5 583 | **0** | 19.6 req/s |
+| B | `order-checkout` | 20 | 5 min | 5 477 | **0** | 19.2 req/s |
 
-| Field | Example |
+Client-side latency, milliseconds, from the raw samples:
+
+| Step | n | p50 | p90 | p95 | p99 | max |
+|---|---|---|---|---|---|---|
+| **A** Catalogue page (paged, sorted) | 1 125 | 23 | 47 | 61 | 83 | 127 |
+| **A** Brand facet | 1 122 | 12 | 21 | 23 | 33 | 38 |
+| **A** Categories | 1 115 | 16 | 28 | 32 | 45 | 68 |
+| **A** Keyword search | 1 112 | 18 | 37 | 42 | 56 | 76 |
+| **A** Product specifications | 1 109 | 15 | 26 | 30 | 39 | 56 |
+| **B** Register | 20 | 93 | 132 | 141 | 146 | 146 |
+| **B** Sign in | 20 | 84 | 122 | 129 | 135 | 135 |
+| **B** Catalogue page | 1 097 | 22 | 60 | 70 | 83 | 95 |
+| **B** Add to cart | 1 092 | 38 | 87 | 101 | 119 | 128 |
+| **B** Place order | 1 082 | 44 | 91 | 102 | 121 | 152 |
+| **B** Order history | 1 080 | 19 | 47 | 55 | 71 | 88 |
+
+Server-side, from Prometheus over the same window — p95 per service, and what
+the saturation panels showed:
+
+| Service | p50 | p95 | p99 | Peak Tomcat busy / max | Peak Hikari active / waiting | Peak heap |
+|---|---|---|---|---|---|---|
+| api-gateway | 15 ms | 67 ms | 98 ms | — (WebFlux) | — | 90 MiB |
+| product-service | 8 ms | 36 ms | 58 ms | 3 / 200 | 2 / 0 | 133 MiB |
+| order-service | 20 ms | 81 ms | 105 ms | 4 / 200 | 3 / 0 | 129 MiB |
+| user-service | 82 ms | 123 ms | 132 ms | 1 / 200 | 0 / 0 | 135 MiB |
+
+Gateway route p95: `product-manager` 40 ms, `order-manager` 84 ms,
+`user-manager` 125 ms. Slowest endpoints by p95: order placement 93 ms,
+add-to-cart 90 ms, catalogue listing 48 ms, the internal `reduce-stock` call
+45 ms.
+
+**Verdict against §5.** Every threshold passed with a wide margin — catalogue
+p95 61 ms against a 500 ms budget, place-order p95 102 ms against 2 s, zero
+5xx across 11 060 samples. **This does not verify `NFR-PRF-1`**, which asks for
+p95 under 500 ms at *1 000 products*; this catalogue holds 14, so the query
+never left the buffer pool. What the run does establish is a baseline, and that
+nothing in the request path is grossly wrong at 20 concurrent users.
+
+**Nothing saturated.** Tomcat peaked at 4 busy threads of 200, Hikari never had
+a connection waiting, heap stayed under 135 MiB per JVM. At this concurrency
+the platform is not the constraint, which is exactly why the stress stage — not
+run yet — is where the predictions in §8 will be settled.
+
+**What the run found.** Three defects, one of them new:
+
+- **BUG-22 (new)** — every order placed with `cod` answered **500**. The
+  `Payment.paymentMethod` field carries `@Size(min = 4)` and the check is only
+  reached at persist time, so a three-character method fails the transaction
+  after stock has already been decremented. The SPA never hits it (it posts
+  `online`); the system suite does, but those cases are destructive-gated and
+  had never been executed. The load plan now sends `online` and carries a note
+  pointing at the register entry.
+- **BUG-12 confirmed, and worse than recorded.** `GET
+  /products/keyword/{keyword}` answers a *successful* search with `302 FOUND`
+  and no `Location` header. JMeter rejects that at transport level — "Missing
+  location header in redirect" — before any sampler setting can intervene, so
+  the endpoint cannot be load tested at all with this tool. The plan measures
+  search through the `?keyword=` filter the SPA actually uses instead.
+- **BUG-04 confirmed.** Asking for a page past the last one, or a keyword that
+  matches nothing, answers `400 "No Products Exist!!!"` rather than an empty
+  page. The plan caps its page range with `page.max` so a run measures the
+  query rather than the exception path.
+
+**Follow-up.** Run the stress and spike stages; seed a catalogue of a thousand
+products before claiming anything about `NFR-PRF-1`; re-run with the generator
+off the machine under test before quoting a throughput figure.
+
+### 2026-08-29 — capacity ramp: where it bends, and on what
+
+The load stage saturated nothing, so the next run was a **capacity ramp**:
+concurrency raised step by step with everything else held constant, until
+something gave. Same environment as above, same host (12 cores, 8 GB to
+Docker, generator on the same machine).
+
+The first four steps hold the load-stage think time and raise threads; the
+last three drop think time to zero, which concentrates the same offered load
+into far fewer threads and keeps the generator out of the way. Only the
+`catalogue-browse` plan is shown — it is read-only, so a step can be repeated
+exactly.
+
+| Threads | Think | Client req/s | p50 | p95 | p99 | product p95 (server) | Tomcat busy | Hikari active / waiting | Errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 20 | 0.5–1.5s | 19.6 | 23 ms | 61 ms | 83 ms | 36 ms | 3 / 200 | 2 / 0 | 0 |
+| 50 | 0.5–1.5s | 49 | 12 ms | 34 ms | 57 ms | 23 ms | 2 / 200 | 1 / 0 | 0 |
+| 200 | 0.5–1.5s | 199 | 6 ms | 31 ms | 53 ms | 18 ms | 8 / 200 | 7 / 0 | 0 |
+| 800 | 0.5–1.5s | 792 | 6 ms | 19 ms | 35 ms | 13 ms | 6 / 200 | 6 / 0 | 0 |
+| 100 | none | **2 203** | 41 ms | 111 ms | 156 ms | 101 ms | 93 / 200 | **10 / 78** | 0 |
+| 200 | none | 2 089 | 88 ms | 256 ms | 359 ms | 246 ms | 188 / 200 | **10 / 180** | 0 |
+| 500 | none | 2 226 | 179 ms | 447 ms | 587 ms | 309 ms | **200 / 200** | **10 / 189** | 0 |
+
+**The knee is at roughly 2 100 req/s.** Past it, throughput is flat — 2 203,
+2 089, 2 226 req/s across a 5× increase in concurrency — while latency grows
+in proportion to the number of threads: p95 111 ms → 256 ms → 447 ms. That is
+the textbook signature of a saturated resource with a queue in front of it.
+Below the knee the platform is *faster* the more warmed up it is: p95 fell from
+61 ms at 20 threads to 19 ms at 800, because the JIT and the buffer pool had
+caught up.
+
+**What saturates, in order.**
+
+1. **The HikariCP connection pool, at its default of 10.** From the first
+   no-think step onward it is pinned at 10 active with 78, then 180, then 189
+   threads waiting for a connection. This is where the queue forms.
+2. **The Tomcat thread pool**, once enough requests are blocked on that queue:
+   93 busy, then 188, then all 200 at the 500-thread step.
+3. **Nothing else.** No 5xx at any step. No Hikari connection timeouts — the
+   waits are hundreds of milliseconds against a 30-second timeout. Heap under
+   220 MiB, GC under 2% of wall-clock, MySQL nowhere near its 151-connection
+   limit.
+
+**But the pool is not the ceiling.** Raising `maximum-pool-size` to 50 on
+product-service and repeating the 200-thread step (an experiment run from an
+override file outside the repository, then reverted):
+
+| 200 threads, no think | Pool 10 | Pool 50 |
+|---|---|---|
+| Client throughput | 2 089 req/s | 2 010 req/s |
+| Client p95 | 256 ms | 199 ms |
+| product-service p95 | 246 ms | 134 ms |
+| Hikari active / waiting | 10 / 180 | 50 / 72 |
+| Tomcat busy | 188 | 137 |
+| product-service CPU | 34% | 52% |
+
+Latency improved by a fifth and the queue shrank by more than half, but
+**throughput did not move**. The pool decides *where requests wait* and
+therefore what latency looks like; it does not decide how many the platform can
+finish.
+
+**What actually caps it is CPU, and it is the host's.** Sampled during the
+200-thread step at the shipped pool size:
+
+| Container | CPU |
 |---|---|
-| Date, stage, plan | 2026-09-01, load, `catalogue-browse` |
-| Environment | Stack and generator on one 8-core laptop; images from backend `abc1234` |
-| Throughput at plateau | req/s |
-| p95 / p99, per endpoint | s |
-| Error rate | 4xx / 5xx split |
-| First resource to saturate | e.g. Tomcat threads on product-service at 60 concurrent |
-| Verdict against §5 | pass / miss, and which threshold |
-| Follow-up | defect raised, or change made |
+| product-service | ~4.0–4.3 cores |
+| mysql | ~2.5–2.9 cores |
+| api-gateway | ~2.0–2.4 cores |
+| **Total** | **~9.3 of 12 cores**, before counting JMeter itself |
+
+So the honest headline is: **on this host, the read path tops out at about
+2 100 req/s because the machine runs out of cores — with the load generator
+taking a share of them.** The application never fails; it queues. That is a
+better answer than a number, because it says what to change: the ceiling moves
+when the generator leaves the machine, and only then is it worth asking whether
+the pool, the query plan or the service itself is next.
+
+#### The ordering path bends earlier, and somewhere else
+
+The same treatment on `order-checkout`, 200 threads with no think time:
+
+| | Client | order-service | product-service |
+|---|---|---|---|
+| Throughput | 570 req/s | 456 req/s | 342 req/s |
+| p95 | 751 ms | 775 ms | **22 ms** |
+| Tomcat busy | — | **200 / 200** | 14 / 200 |
+| Hikari active / waiting | — | **10 / 189** | 10 / 1 |
+| Errors | 0 | 0 | 0 |
+
+**The prediction in §8 was half right.** order-service does saturate first, and
+its Tomcat pool does sit at its ceiling — but *not* on product-service's
+behalf. product-service answered in 22 ms throughout and had 14 threads busy of
+200. order-service is queueing on its own database connections, exactly as the
+catalogue path does. The blocking cross-service call
+([ADR-0009](../architecture/decisions/0009-resttemplate-for-service-calls.md))
+would amplify a slow catalogue, but at this concurrency the catalogue is not
+slow; the pool in front of the writer is what runs out.
+
+The ordering path also finishes about a quarter as many requests per second as
+the read path, which is expected: every iteration writes a cart row, an order,
+order items and a payment, and makes two synchronous hops into product-service.
+
+#### A defect the ramp found by accident
+
+Recreating the `product-service` container mid-run to change its pool size
+produced **86 421 failures in twenty seconds — 87% then 92% of all requests —
+followed by complete recovery**. The gateway kept load-balancing to the dead
+instance's address until Eureka evicted it, and with no retry filter and no
+health-checked instance selection, each of those hops was returned to the
+caller as a 503. Registered as
+[`BUG-23`](../backend/known-defects.md#bug-23--replacing-a-service-instance-blackholes-its-route-for-about-twenty-seconds).
+
+It is worth stating plainly what this means operationally: **a routine
+redeploy of one service currently costs a twenty-second outage on its route**,
+and only a load run makes that visible — a manual click-through would see a
+handful of errors and a refresh would fix them.
+
+#### What is still not known
+
+- **The spike stage.** Nothing here tested a sudden arrival and recovery.
+- **Where it bends with the generator off the machine.** Every number above
+  shares 12 cores with JMeter, so 2 100 req/s is a floor for the platform's
+  capacity, not a measurement of it.
+- **Volume.** Still 14 products. Every prediction in §8 that depends on
+  catalogue size is untested.
+- **Where errors begin.** No step produced a single 5xx. The failure mode past
+  saturation is unbounded latency, not rejection — which is its own risk, since
+  a client with a timeout sees that as failure while the server counts it a
+  success.
 
 ---
 
 ## 8. Predicted bottlenecks
 
-Predictions from reading the code, not measurements. They are written down
-before the first run precisely so that the run can contradict them.
+Predictions from reading the code, not measurements. They were written down
+before the first run precisely so that a run could contradict them.
 
-| Prediction | Why | Where it should show |
+**The 2026-08-29 load stage settled none of them**; the capacity ramp that
+followed settled two, and contradicted one. Judgements are in the right-hand
+column.
+
+| Prediction | Why it was expected | Verdict after the 2026-08-29 ramp |
 |---|---|---|
-| Catalogue search degrades before plain listing | The keyword and facet filters are `LIKE '%…%'` predicates over joined tables (see `BUG-14`, `BUG-15`), which no index can help | Per-URI p95 on the endpoint dashboard, search visibly above listing |
-| order-service saturates on product-service's behalf | Placing an order holds a Tomcat thread for the whole synchronous stock call, with no timeout ([ADR-0009](../architecture/decisions/0009-resttemplate-for-service-calls.md)) | `tomcat_threads_busy_threads` flattening on **order**-service while product-service is the slow one |
-| No graceful degradation under stress | No circuit breaker, no rate limiting, no bulkhead anywhere | 5xx appearing abruptly rather than latency rising smoothly |
-| Hikari pools contend through one MySQL | Three services, three schemas, one container ([ADR-0008](../architecture/decisions/0008-single-mysql-multiple-databases.md)) | `hikaricp_connections_pending` above zero on more than one service at once |
-| Seller order listing is the worst endpoint in the platform | `getAllSellerOrders` loads every order into memory before paging | Not covered by either plan — add it deliberately when measuring that |
+| Catalogue search degrades before plain listing | The keyword and facet filters are `LIKE '%…%'` predicates over joined tables (see `BUG-14`, `BUG-15`), which no index can help | **Untested.** At 14 products search was *faster* than listing (p95 42 ms vs 61 ms). A catalogue this small says nothing either way |
+| order-service saturates on product-service's behalf | Placing an order holds a Tomcat thread for the whole synchronous stock call, with no timeout ([ADR-0009](../architecture/decisions/0009-resttemplate-for-service-calls.md)) | **Half right, wrong mechanism.** order-service does saturate first — Tomcat pinned at 200/200 — but product-service answered in 22 ms with 14 threads busy. It queues on its own connection pool, not on a slow catalogue |
+| No graceful degradation under stress | No circuit breaker, no rate limiting, no bulkhead anywhere | **Contradicted, in an uncomfortable way.** No 5xx at any concurrency: it degrades *gracefully into unbounded latency*. p95 grew from 111 ms to 447 ms with no error at all, so a client with a timeout would experience failure while the server counted every request a success |
+| Hikari pools contend through one MySQL | Three services, three schemas, one container ([ADR-0008](../architecture/decisions/0008-single-mysql-multiple-databases.md)) | **Confirmed as the queueing point, denied as the ceiling.** The pool pins at its default 10 with up to 189 waiting on whichever service is under load; raising it to 50 cut p95 by a fifth and moved throughput not at all. MySQL itself stayed far from its 151-connection limit |
+| Seller order listing is the worst endpoint in the platform | `getAllSellerOrders` loads every order into memory before paging | **Still not measured** — not in either plan. Now more interesting than before: the database holds thousands of orders after these runs, so it would finally have something to page through |
 
 The last row is a gap, not an oversight: the seller path is low-concurrency in
 practice, so it is not in the standard workload. It is also the endpoint most
 likely to fall over first if it ever were, which is why it is named here.
+
+---
+
+### Two things the harness itself cannot measure
+
+- **`GET /products/keyword/{keyword}` cannot be load tested with JMeter at
+  all.** It answers a successful search with `302 FOUND` and no `Location`
+  header (`BUG-12`), and JMeter's HTTP implementation rejects that response at
+  transport level before any sampler setting applies. Search is measured
+  through the `?keyword=` filter on the listing endpoint instead — which is the
+  path the SPA's search box takes anyway. When `BUG-12` is fixed, the dedicated
+  endpoint can be added to the plan.
+- **Stripe checkout.** The plan places orders with a payment method the service
+  only stores; nothing contacts Stripe (§1).
 
 ---
 
