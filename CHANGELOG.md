@@ -29,9 +29,13 @@ No version has been tagged yet. Everything below ships in the first release.
   per session: each prompt as it was typed and the reply that closed that turn,
   plus the session's duration, the files it modified and the commits it
   produced. Secrets and live-host addresses are masked automatically, and a
-  `SessionEnd` hook regenerates the record when a session ends. The records are
-  **not in this repository** — it is public and they quote whole conversations;
-  see [`docs/dev-log/sessions.md`](docs/dev-log/sessions.md) and
+  `SessionEnd` hook regenerates the record when a session ends, then commits and
+  pushes it to that repository — a record that never leaves one laptop is not
+  kept, since the transcript behind it expires. `--no-push` and `--no-commit`
+  (or `TECHZONE_SESSION_HISTORY_AUTOPUSH=0` / `…_AUTOCOMMIT=0`) leave that to a
+  person. The records are **not in this repository** — it is public and they
+  quote whole conversations; see
+  [`docs/dev-log/sessions.md`](docs/dev-log/sessions.md) and
   [ADR-0011](docs/architecture/decisions/0011-session-records-in-a-private-repository.md).
 
 - **Metrics on every service.** All seven backend services now expose a

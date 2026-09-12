@@ -338,7 +338,7 @@ A change is complete when all of these are true:
 | 2 | New behaviour has a test at the lowest level that can prove it |
 | 3 | The affected documents in `docs/` are updated **in the same change set** |
 | 4 | A session entry is at the top of the current month's [dev log](../dev-log/) |
-| 5 | The session record is generated and committed **to the private history repository**: `python scripts/export_session.py` |
+| 5 | The session record is in the private history repository, committed and pushed — the `SessionEnd` hook does this; `python scripts/export_session.py` does it by hand |
 | 6 | A platform-level decision has an [ADR](../architecture/decisions/) |
 | 7 | User-visible changes are added to `[Unreleased]` in [`CHANGELOG.md`](../../CHANGELOG.md) |
 | 8 | The submodule pointer is committed in the superproject |

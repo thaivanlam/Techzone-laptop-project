@@ -30,6 +30,11 @@ Usage::
     python scripts/export_session.py --since 2026-09-01
     python scripts/export_session.py --from-hook      # reads hook JSON on stdin
     python scripts/export_session.py --check          # exit 1 if output is stale
+    python scripts/export_session.py --no-push        # write and commit, do not push
+
+Whatever it writes, it then commits and pushes in that private repository — see
+:func:`publish`. ``--no-commit`` and ``--no-push`` (or the environment variables
+named beside them) leave that to a person.
 """
 
 from __future__ import annotations
@@ -51,6 +56,9 @@ DEFAULT_MAX_RESPONSE_CHARS = 8000
 # See docs/dev-log/sessions.md.
 HISTORY_REPO_ENV = "TECHZONE_SESSION_HISTORY"
 HISTORY_REPO_DEFAULT = "Techzone-session-history"
+AUTOCOMMIT_ENV = "TECHZONE_SESSION_HISTORY_AUTOCOMMIT"
+AUTOPUSH_ENV = "TECHZONE_SESSION_HISTORY_AUTOPUSH"
+_OFF = {"0", "false", "no", "off"}
 
 
 def resolve_output_dir(override: str | None = None) -> Path:
@@ -629,6 +637,110 @@ def render_index(sessions: list[Session]) -> str:
 
 
 # --------------------------------------------------------------------------
+# Publishing
+# --------------------------------------------------------------------------
+
+
+def _git(root: Path, *args: str, timeout: int = 60):
+    """Run one git command in ``root``; None if git could not be run at all.
+
+    Terminal prompts are disabled: this usually runs from a ``SessionEnd`` hook,
+    where a credential prompt has no terminal to appear on and would block until
+    the hook's timeout killed it.
+    """
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def commit_message(sessions: list[Session]) -> str:
+    """Subject line for the records this run wrote."""
+    if len(sessions) == 1:
+        session = sessions[0]
+        title = redact(session.title or "untitled session").strip().replace("\n", " ")
+        if len(title) > 60:
+            title = title[:57].rstrip() + "…"
+        return f"Record session {session_date(session)} — {title}"
+    dates = sorted(session_date(s) for s in sessions)
+    span = dates[0] if dates[0] == dates[-1] else f"{dates[0]}–{dates[-1]}"
+    return f"Record {len(sessions)} sessions ({span})"
+
+
+def publish(history_root: Path, message: str, push: bool, quiet: bool) -> None:
+    """Commit the records in the private repository, and push them.
+
+    Called after the records are written, so that keeping the history depends on
+    nothing being remembered. Only ``sessions/`` is staged — anything else a
+    person has in flight in that repository is left alone.
+
+    Nothing here can fail the export. A missing remote, an expired credential or
+    a branch that has moved on elsewhere is reported and returns; the records are
+    already on disk and the next run picks them up.
+    """
+
+    def note(text: str) -> None:
+        if not quiet:
+            print(text)
+
+    if not (history_root / ".git").exists():
+        note(f"not a git repository, nothing committed: {history_root}")
+        return
+    # Never operate on this repository: the records must not land here.
+    if history_root == REPO_ROOT or REPO_ROOT in history_root.parents:
+        print(
+            f"refusing to commit session records inside {REPO_ROOT}",
+            file=sys.stderr,
+        )
+        return
+
+    staged = _git(history_root, "add", "--", "sessions")
+    if staged is None or staged.returncode != 0:
+        note("could not stage the session records; commit them by hand")
+        return
+
+    pending = _git(history_root, "diff", "--cached", "--quiet", "--", "sessions")
+    if pending is not None and pending.returncode == 0:
+        note("session records already committed")
+    else:
+        done = _git(history_root, "commit", "-m", message, "--", "sessions")
+        if done is None or done.returncode != 0:
+            detail = (done.stderr or done.stdout).strip() if done else "git not found"
+            print(f"session records not committed: {detail}", file=sys.stderr)
+            return
+        note(f"committed: {message}")
+
+    if not push:
+        return
+
+    branch = _git(history_root, "rev-parse", "--abbrev-ref", "HEAD")
+    name = branch.stdout.strip() if branch and branch.returncode == 0 else "HEAD"
+    upstream = _git(history_root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    args = ["push"] if upstream and upstream.returncode == 0 else ["push", "-u", "origin", name]
+    sent = _git(history_root, *args, timeout=180)
+    if sent is None or sent.returncode != 0:
+        detail = (sent.stderr or sent.stdout).strip() if sent else "git not found"
+        # A rejected push means the branch moved on somewhere else. Pulling
+        # automatically would merge or rebase unreviewed history under a hook,
+        # so it is left to a person.
+        print(
+            f"session records committed but not pushed: {detail}\n"
+            f"push them from {history_root}",
+            file=sys.stderr,
+        )
+        return
+    note(f"pushed to {name}")
+
+
+# --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
 
@@ -690,6 +802,17 @@ def main() -> int:
         help=f"the private history repository to write into "
         f"(default: ${HISTORY_REPO_ENV}, else ../{HISTORY_REPO_DEFAULT})",
     )
+    parser.add_argument(
+        "--no-commit",
+        action="store_true",
+        help=f"write the records but do not commit them "
+        f"(also ${AUTOCOMMIT_ENV}=0)",
+    )
+    parser.add_argument(
+        "--no-push",
+        action="store_true",
+        help=f"commit the records but do not push them (also ${AUTOPUSH_ENV}=0)",
+    )
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -716,6 +839,18 @@ def main() -> int:
         transcripts = [single]
 
     output_dir = resolve_output_dir(args.output_dir)
+    if output_dir == REPO_ROOT or REPO_ROOT in output_dir.parents:
+        # This repository is public and the records quote whole conversations.
+        # An --output-dir pointing here is a mistake, not an instruction.
+        message = (
+            f"refusing to write session records inside {REPO_ROOT}; "
+            f"they belong in the private history repository "
+            f"(see docs/dev-log/sessions.md)"
+        )
+        if args.from_hook:
+            print(message, file=sys.stderr)
+            return 0
+        raise SystemExit(message)
     if not output_dir.parent.is_dir():
         # A hook must never break the session it fires from; a person running
         # this by hand needs to know why nothing was written.
@@ -770,6 +905,11 @@ def main() -> int:
                 f"{filename(session)}  ({len(session.exchanges)} exchanges, "
                 f"{session.answered} replies)"
             )
+
+    commit = not args.no_commit and os.environ.get(AUTOCOMMIT_ENV, "").lower() not in _OFF
+    push = not args.no_push and os.environ.get(AUTOPUSH_ENV, "").lower() not in _OFF
+    if sessions and commit:
+        publish(output_dir.parent, commit_message(sessions), push, args.quiet)
     return 0
 
 

@@ -7,8 +7,8 @@
           {
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/scripts/export_session.py\" --from-hook --quiet || true",
-            "timeout": 120,
-            "statusMessage": "Recording the session prompt log"
+            "timeout": 300,
+            "statusMessage": "Recording, committing and pushing the session record"
           }
         ]
       }
