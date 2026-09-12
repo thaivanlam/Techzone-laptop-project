@@ -338,9 +338,10 @@ A change is complete when all of these are true:
 | 2 | New behaviour has a test at the lowest level that can prove it |
 | 3 | The affected documents in `docs/` are updated **in the same change set** |
 | 4 | A session entry is at the top of the current month's [dev log](../dev-log/) |
-| 5 | A platform-level decision has an [ADR](../architecture/decisions/) |
-| 6 | User-visible changes are added to `[Unreleased]` in [`CHANGELOG.md`](../../CHANGELOG.md) |
-| 7 | The submodule pointer is committed in the superproject |
+| 5 | The session record is generated and committed **to the private history repository**: `python scripts/export_session.py` |
+| 6 | A platform-level decision has an [ADR](../architecture/decisions/) |
+| 7 | User-visible changes are added to `[Unreleased]` in [`CHANGELOG.md`](../../CHANGELOG.md) |
+| 8 | The submodule pointer is committed in the superproject |
 
 Documentation is written in **English**, whatever language the commit message or
 the conversation used.
@@ -348,6 +349,16 @@ the conversation used.
 Never commit a secret. The dev log has explicit redaction rules — name the
 variable, never the value, and never write a live host's address. See
 [../dev-log/README.md](../dev-log/README.md).
+
+The verbatim session records are **not in this repository** — they are generated
+into the private `Techzone-session-history` repository, for reasons set out in
+[`../dev-log/sessions.md`](../dev-log/sessions.md). `scripts/export_session.py`
+masks the obvious shapes on the way out — vendor keys, JWTs, credentials in
+connection strings, `KEY=value` pairs whose key names a secret, public addresses
+— but it works from a pattern list. Over this project's history it masks sixteen
+values, none of them sensitive, and two gaps in it were found only once replies
+were captured as well as prompts. Treat the masker as a second line: what keeps
+those records private is that the repository is.
 
 ---
 

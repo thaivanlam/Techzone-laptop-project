@@ -14,3 +14,11 @@ Thumbs.db
 
 # Playwright MCP session artifacts (snapshots, console logs)
 .playwright-mcp/
+
+# Python bytecode (scripts/)
+__pycache__/
+*.py[cod]
+
+# Session records belong in the private Techzone-session-history repository,
+# never here. See docs/dev-log/sessions.md.
+docs/dev-log/sessions/

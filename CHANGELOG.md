@@ -23,6 +23,17 @@ No version has been tagged yet. Everything below ships in the first release.
 
 ### Added
 
+- **A record of every development session**, kept in a separate private
+  repository. `scripts/export_session.py` distils the AI assistant's local
+  transcripts — which the tool deletes after 30 days — into one markdown file
+  per session: each prompt as it was typed and the reply that closed that turn,
+  plus the session's duration, the files it modified and the commits it
+  produced. Secrets and live-host addresses are masked automatically, and a
+  `SessionEnd` hook regenerates the record when a session ends. The records are
+  **not in this repository** — it is public and they quote whole conversations;
+  see [`docs/dev-log/sessions.md`](docs/dev-log/sessions.md) and
+  [ADR-0011](docs/architecture/decisions/0011-session-records-in-a-private-repository.md).
+
 - **Metrics on every service.** All seven backend services now expose a
   Micrometer registry at `/actuator/prometheus`, with request histograms so
   latency percentiles can be computed rather than guessed. A new

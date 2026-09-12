@@ -25,6 +25,7 @@ Frontend-specific decisions were never part of this file and remain in
 | Why does one MySQL container serve three databases? | [ADR-0008](decisions/0008-single-mysql-multiple-databases.md) |
 | Why RestTemplate rather than Feign or WebClient? | [ADR-0009](decisions/0009-resttemplate-for-service-calls.md) |
 | Why Prometheus and Grafana, and why JMeter for load? | [ADR-0010](decisions/0010-prometheus-grafana-metrics.md) |
+| Why are the session records in a different, private repository? | [ADR-0011](decisions/0011-session-records-in-a-private-repository.md) |
 
 ## Recording a new decision
 

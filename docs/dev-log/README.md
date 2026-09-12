@@ -8,6 +8,17 @@ it.
 One file per month, named `YYYY-MM.md`. Entries within a file run
 **newest first**, so the most recent work is at the top.
 
+The log has two layers:
+
+| Layer | Where | Written by | Answers |
+|---|---|---|---|
+| Narrative | `YYYY-MM.md` (this folder) | By hand, per session | Why the work happened, what was tried, what came of it |
+| Evidence | a **private** repository — see [sessions.md](sessions.md) | Generated from the session transcript | What was asked and what came back, in order, with timestamps |
+
+The narrative layer is the one a reader starts from. The evidence layer exists
+so a claim in it can be checked, and so a question like "where did this defect
+first come up?" has an answer that is not a memory.
+
 ---
 
 ## Why this exists
@@ -49,6 +60,21 @@ rather than writing "none".
 
 ---
 
+## Session records
+
+The prompts and replies of each session are recorded, but not in this
+repository — they live in the private `Techzone-session-history` repository.
+What they contain, how they are generated, and how to reach them is in
+[sessions.md](sessions.md). The reasoning is in
+[ADR-0011](../architecture/decisions/0011-session-records-in-a-private-repository.md).
+
+This folder keeps the narrative layer: the monthly entries, written by hand.
+They are public, so they **summarise and cite** the records rather than quoting
+them wholesale, and an entry has to make sense to a reader who cannot open the
+record it links to.
+
+---
+
 ## What must not go in
 
 This folder is committed and pushed, so every entry is public and permanent.
@@ -65,6 +91,16 @@ Three categories to strip before committing:
    library, a framework, or another person's code reads very differently on a
    public repository than it did at 2 a.m.
 
+These rules bind this folder, which is public. They also bind
+`scripts/export_session.py`, which enforces the first two mechanically on
+everything it writes into the private history repository: vendor key formats
+(Stripe, AWS, Google, GitHub, Slack), JSON Web Tokens, credentials inside
+connection strings, any `KEY=value` whose key name contains SECRET / PASSWORD /
+TOKEN / API_KEY / CREDENTIAL, and public IPv4 addresses. It is deliberately
+over-eager and it is not exhaustive — a secret in a shape it does not recognise
+passes straight through. What keeps those records private is the repository's
+visibility, not the masker.
+
 Redaction is cheaper before the commit than after: rewriting published git
 history is possible but the value is already scraped and mirrored by then. If a
 secret does reach a commit, **rotate it** — do not rely on a force-push.
@@ -76,5 +112,6 @@ secret does reach a commit, **rotate it** — do not rely on a force-push.
 | Record | Where | Cadence |
 |---|---|---|
 | How the work happened | `docs/dev-log/YYYY-MM.md` (this folder) | Per work session |
+| What was asked and answered, verbatim | `Techzone-session-history` (private) | Per work session, generated |
 | Why the architecture is what it is | [../architecture/design-decisions.md](../architecture/design-decisions.md) | When a platform choice is made or revised |
 | What changed for a consumer of the release | [../../CHANGELOG.md](../../CHANGELOG.md) | When a version is cut |
