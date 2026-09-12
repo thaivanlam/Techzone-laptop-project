@@ -38,6 +38,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -284,6 +285,43 @@ _GIT_COMMIT_CALL = re.compile(
 )
 
 
+def _resolvable_commits(shas: list[str]) -> set[str]:
+    """Of these SHAs, the ones still reachable from a ref here or in a submodule.
+
+    git reports a SHA when a commit is made, but that commit may later be
+    rewritten away — as happens when unpushed history is reshaped. Reachability
+    is the test, not existence: a rewritten commit survives in the object
+    database until it is garbage-collected, so ``cat-file`` would still find it
+    and the record would cite a commit nobody can reach. When git cannot be run
+    at all, nothing is dropped — an unverifiable claim beats a silently emptied
+    list.
+    """
+    if not shas:
+        return set()
+    roots = [REPO_ROOT] + [
+        REPO_ROOT / name
+        for name in ("backend", "frontend")
+        if (REPO_ROOT / name / ".git").exists()
+    ]
+    reachable: list[str] = []
+    for root in roots:
+        try:
+            result = subprocess.run(
+                ["git", "rev-list", "--all"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return set(shas)
+        if result.returncode == 0:
+            reachable.extend(result.stdout.split())
+    if not reachable:
+        return set(shas)
+    return {sha for sha in shas if any(full.startswith(sha) for full in reachable)}
+
+
 def _answers_commit_call(record: dict, commit_calls: set[str]) -> bool:
     """True if this tool result came back from a shell call that ran git commit."""
     content = record.get("message", {}).get("content")
@@ -443,6 +481,8 @@ def parse_session(
             )
 
     close_turn()
+    keep = _resolvable_commits(session.commits)
+    session.commits = [sha for sha in session.commits if sha in keep]
     return session if session.exchanges else None
 
 
@@ -567,8 +607,9 @@ before writing. Read [the redaction rules](../README.md#what-must-not-go-in)
 before adding anything here by hand.
 
 **Replies** counts the exchanges that ended in prose; a turn that ended on a
-tool call has none. **Commits** lists the SHAs git reported during the session,
-so a commit made with `git commit -q`, which prints nothing, does not appear.
+tool call has none. **Commits** lists the SHAs git reported during the
+session and that still resolve, so a commit made with `git commit -q`, which
+prints nothing, does not appear — nor does one later rewritten away.
 
 | Date | Session | Title | Exchanges | Replies | Commits |
 |---|---|---|---|---|---|
