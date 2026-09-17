@@ -29,7 +29,8 @@ For starting, configuring and recovering the *system* rather than the shop, see
 ## 1. Signing In
 
 Sign in with an administrator account and you land at `/admin` instead of the
-shop. A freshly installed system has a demonstration `admin` account — see
+shop. Sign in with your **email address**. A freshly installed system has a
+demonstration `admin@example.com` account — see
 [../operations/running-locally.md](../operations/running-locally.md#seeded-users).
 
 The sidebar holds six entries. Sellers see only two of them.
@@ -43,8 +44,9 @@ The sidebar holds six entries. Sellers see only two of them.
 | **Sellers** | Seller accounts |
 | **Customers** | Customer accounts |
 
-Your session lasts about 50 minutes, after which actions start failing silently.
-Sign in again when the panel stops responding.
+Clicking **Login** takes you to the TechZone account page, where you enter your
+email and password, and brings you back. Your session renews itself while you
+work; after 30 minutes idle you are asked to sign in again.
 
 ---
 
@@ -147,6 +149,7 @@ Two lists, both paginated, both offering deletion.
 
 | Task | Where |
 |---|---|
+| Add a seller | **Sellers → Add**: name and email only. The shop shows a **temporary password once** — copy it and give it to the seller; they choose their own at first sign-in |
 | See who sells here | **Sellers** |
 | See who buys here | **Customers** |
 | Remove an account | The delete action on either list |
@@ -155,9 +158,15 @@ Deleting a customer removes their addresses with them. Deleting a **seller does
 not remove their products** — those stay in the catalogue pointing at an account
 that no longer exists. Reassign or delete the products first.
 
-There is no way to reset a password, suspend an account without deleting it, or
-change someone's role. An account that cannot sign in has to be deleted and
-created again.
+Deleting an account removes it from the account service as well, so the person
+can no longer sign in.
+
+The shop cannot make someone an **administrator** — on purpose. That is done in
+the Keycloak admin console (`http://localhost:8090/admin`, with the console
+credentials whoever installed the system set), under *Users → the person → Role
+mapping → ROLE_ADMIN*. Passwords, account locking and email changes are handled
+there too. **Do not change a user's email in the console**: the shop's records are
+keyed on it, and that person's orders and addresses would be orphaned.
 
 ---
 
@@ -191,8 +200,8 @@ created again.
 
 Not missing by accident — outside what this version does:
 
-- Reset or change anyone's password
-- Suspend an account, or change its role
+- Reset anyone's password, suspend an account, or change a role — from the shop.
+  All three are done in the Keycloak admin console instead
 - Refund a payment, or process a return
 - Issue an invoice or any tax document
 - Apply a discount code or run a campaign
@@ -204,21 +213,24 @@ Not missing by accident — outside what this version does:
 
 ## 9. Security You Need to Know About
 
-Four things about this version that change how you should deploy and use it.
+The things about this version that change how you should deploy and use it.
 They are recorded in full in
 [../backend/known-defects.md](../backend/known-defects.md).
 
 | Issue | What it means in practice |
 |---|---|
-| **Anyone can register as an administrator** (`SEC-01`) | The registration form offers the Admin role and the system grants it. On any network other than your own machine, anybody who finds the shop can take full control |
-| **The account lists are public** (`SEC-02`) | Listing and deleting customers and sellers needs no sign-in at all — not just no *admin* sign-in. Anyone who knows the address can enumerate and delete accounts |
 | **Payment success is claimed by the browser** (`SEC-03`) | A crafted request can create a paid order without paying. Never treat an order in this system as proof of payment |
-| **The signing secret is in the source code** (`SEC-04`) | Anyone with the repository can forge a session as any user, including you |
+| **Ownership is not checked** (`SEC-05`, `SEC-07`–`SEC-09`) | Any seller can edit another seller's product by id; any signed-in shopper can list every cart and change order statuses or other people's addresses |
+| **The account-service console and the development secrets** | Keycloak's admin console is on port 8090, and the demo client secrets are published. Change `KEYCLOAK_ADMIN_PASSWORD` and both client secrets, and do not expose the console |
+
+Fixed on 2026-09-12, when sign-in moved to Keycloak: anyone could register as an
+administrator (`SEC-01`), the account lists were public (`SEC-02`), and the token
+signing secret was in the source code (`SEC-04`).
 
 **The practical consequence:** run this on `localhost` or a closed network. Do
 not publish it to the internet, and do not put real customer data or real
 payment details into it. It is a demonstration platform, and it is safe only
 while it is not reachable by strangers.
 
-If you must expose it, the four issues above are the minimum to fix first, in
-that order.
+If you must expose it, the issues above are the minimum to fix first, in that
+order.

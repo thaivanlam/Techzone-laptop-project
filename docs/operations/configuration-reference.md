@@ -75,6 +75,25 @@ backend service. Copy `.env.example` and fill it in.
 | `GRAFANA_PORT` | `3001` | Compose | Host port for Grafana. Not 3000: that is one of the frontend dev origins the gateway allows for CORS, and is left free for a Vite server |
 | `GRAFANA_ADMIN_USER` | `admin` | grafana | Grafana administrator account. Anonymous viewers get read-only access without it |
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | grafana | Set it to anything else before running this anywhere with an address |
+| `KEYCLOAK_PORT` | `8090` | Compose | Host port for Keycloak. The browser is redirected here, so it must be reachable from the browser |
+| `KEYCLOAK_ADMIN_USER` | `admin` | keycloak | Bootstrap account for the Keycloak admin console |
+| `KEYCLOAK_ADMIN_PASSWORD` | `admin` | keycloak | Set it before running anywhere with an address. The console is where administrators are promoted |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | development default | keycloak (realm import), user-service | Secret of the `techzone-admin-api` service account. Must be the same on both sides |
+| `KEYCLOAK_TESTS_CLIENT_SECRET` | development default | keycloak (realm import), `tests/` | Secret of the `techzone-tests` client |
+| `KEYCLOAK_PUBLIC_URL` | `http://localhost:8090` | keycloak | Becomes `KC_HOSTNAME`, which pins the `iss` claim |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8090/realms/techzone` | gateway, user, product, order | Compared with the `iss` claim. **Never fetched.** Must equal `KEYCLOAK_PUBLIC_URL` + `/realms/techzone` |
+| `KEYCLOAK_JWK_SET_URI` | `http://keycloak:8090/realms/techzone/protocol/openid-connect/certs` | gateway, user, product, order | Where the public keys are fetched. The address the *container* can reach |
+| `KEYCLOAK_BASE_URL` | `http://keycloak:8090` | user-service | Admin API, server to server |
+| `VITE_KEYCLOAK_URL` | `http://localhost:8090` | frontend **build** | Where `keycloak-js` redirects. The address the *browser* can reach |
+| `VITE_KEYCLOAK_REALM`, `VITE_KEYCLOAK_CLIENT_ID` | `techzone`, `techzone-spa` | frontend **build** | Realm and public client |
+
+**The two Keycloak URLs must not be made equal inside Docker.** The token's
+`iss` claim is the host the browser used (`localhost:8090`), but a container
+cannot reach `localhost:8090` — it is its own loopback. So `KEYCLOAK_ISSUER_URI`
+stays public and is only compared, and `KEYCLOAK_JWK_SET_URI` uses the container
+name and is the one fetched. In Mode 3 the services run on the host and both are
+`localhost`. Get this wrong and every authenticated request answers 401 with
+`{"error":"Invalid or expired token"}`.
 
 **`SPRING_PROFILES_ACTIVE` and `COMPOSE_PROFILES` must agree.** `prod` containers
 loading the `dev` profile look for MySQL, RabbitMQ and Eureka on `localhost`
@@ -85,9 +104,11 @@ inside their own container, find nothing, and fail at boot.
 ## 3. `backend/.env` — Backend Only
 
 Used in Mode 2 and Mode 3, where the SPA runs on the Vite dev server and only the
-backend is containerised. It carries the same four keys with the same meanings:
+backend is containerised. It carries the same keys with the same meanings:
 `SPRING_PROFILES_ACTIVE`, `COMPOSE_PROFILES`, `STRIPE_SECRET_KEY`,
-`MAIL_PASSWORD`.
+`MAIL_PASSWORD`, and the `KEYCLOAK_*` block from §2. In Mode 3,
+`KEYCLOAK_JWK_SET_URI` and `KEYCLOAK_BASE_URL` point at `localhost:8090`,
+because the services run on the host.
 
 > The root project and the `backend/` project are **mutually exclusive** — they
 > share fixed container names and use separate MySQL volumes. Bring one down
@@ -104,8 +125,11 @@ Copy `frontend/.env.example` to `frontend/.env` for Modes 2 and 3.
 | `VITE_BACK_END_URL` | `http://localhost:8080` | Axios `baseURL`. Empty means same-origin |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | `pk_test_…` | Stripe Elements |
 | `VITE_FRONTEND_URL` | `http://localhost:5173` | Where Stripe returns the buyer after payment |
+| `VITE_KEYCLOAK_URL` | `http://localhost:8090` | Keycloak, as the browser reaches it |
+| `VITE_KEYCLOAK_REALM` | `techzone` | Realm |
+| `VITE_KEYCLOAK_CLIENT_ID` | `techzone-spa` | The public client. There is no client secret, by design |
 
-All three are inlined by Vite. In Docker they are **build arguments**: a change
+All of these are inlined by Vite. In Docker they are **build arguments**: a change
 needs `docker compose build frontend`, not a restart. A bundle built without
 `VITE_BACK_END_URL` sends requests to `undefined/user-manager/...`, which is the
 signature of that mistake.
@@ -122,9 +146,23 @@ gets a shared file plus a `-dev` and a `-prod` overlay.
 | Key | Value | Meaning |
 |---|---|---|
 | `spring.jpa.hibernate.ddl-auto` | `update` | Hibernate owns the schema; there are no migrations |
-| `spring.app.jwtSecret` | *(committed literal)* | HMAC-SHA signing secret, shared by all validators — see [§8](#8-secrets) |
-| `spring.app.jwtExpirationMs` | `3000000` | Token lifetime, about 50 minutes |
-| `spring.ecom.app.jwtCookieName` | `springBootEcom` | Cookie the token travels in |
+| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `${KEYCLOAK_ISSUER_URI:http://localhost:8090/realms/techzone}` | Expected `iss`. Compared, not fetched |
+| `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` | `${KEYCLOAK_JWK_SET_URI:http://localhost:8090/realms/techzone/protocol/openid-connect/certs}` | Public keys, fetched and cached. Setting it also skips OIDC discovery, so a service starts before Keycloak is ready |
+
+**Removed on 2026-09-12 (ADR-0012):** `spring.app.jwtSecret`,
+`spring.app.jwtExpirationMs` and `spring.ecom.app.jwtCookieName`, from these three
+files, the gateway's `application.yaml` and three test `application.yaml` files.
+Token lifetime is now realm configuration — see
+[../architecture/security-model.md](../architecture/security-model.md#token-properties).
+
+### user-service only — Keycloak Admin API
+
+| Key | Value | Meaning |
+|---|---|---|
+| `techzone.keycloak.base-url` | `${KEYCLOAK_BASE_URL:http://localhost:8090}` | Server-to-server address |
+| `techzone.keycloak.realm` | `${KEYCLOAK_REALM:techzone}` | |
+| `techzone.keycloak.admin-client-id` | `${KEYCLOAK_ADMIN_CLIENT_ID:techzone-admin-api}` | |
+| `techzone.keycloak.admin-client-secret` | `${KEYCLOAK_ADMIN_CLIENT_SECRET:}` | From the environment only. Empty → `POST /api/admin/users` fails with a message naming the variable |
 | `springdoc.api-docs.enabled` | `true` shared, `false` in `-prod` | Swagger is a development-only surface |
 
 ### Shared by every service — metrics
@@ -259,8 +297,12 @@ behind `SEC-06`, now closed. See
 ### CORS
 
 `allowedOrigins` are `http://localhost:3000`, `http://localhost:5173` and
-`${FRONTEND_URL}`; all common methods; `allowCredentials: true`, which is
-required for the cookie to travel. CORS matters only in Modes 2 and 3 — in the
+`${FRONTEND_URL}`; all common methods; `allowCredentials: true`. Since ADR-0012
+no cookie carries a credential, so `allowCredentials` is no longer what makes
+authentication work — the bearer header is an ordinary request header. The same
+configuration is also applied inside the gateway's security chain, so a 401 or 403
+raised before routing still carries CORS headers the browser will let the SPA
+read. CORS matters only in Modes 2 and 3 — in the
 full-Docker stack the SPA and the API share an origin.
 
 ---
@@ -287,14 +329,23 @@ visible under `prod`. That is a frequent source of "my products disappeared".
 | `STRIPE_SECRET_KEY` | environment | ✅ from `.env`, never committed |
 | `MAIL_PASSWORD` | environment | ✅ from `.env`, never committed |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | build argument | ✅ from `.env` (publishable keys are not secret) |
-| `spring.app.jwtSecret` | Config Server | ❌ **committed as a literal** in four config files — `SEC-04` |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | environment | ✅ from `.env`. The realm file and Compose carry a named development default |
+| `KEYCLOAK_TESTS_CLIENT_SECRET` | environment | ✅ from `.env`, same pattern. The client itself must be disabled outside development |
+| `KEYCLOAK_ADMIN_PASSWORD` | environment | ⚠️ defaults to `admin`, like Grafana's. Override it anywhere with an address |
+| Token signing key | Keycloak's database | ✅ generated by the realm, never leaves Keycloak. No service holds it |
 | MySQL `root` / `root` | Config Server | ❌ committed; acceptable only because the database is not published beyond the host |
 | `spring.mail.username` | Config Server | ❌ committed |
 
-`SEC-04` is the one that matters: anyone with read access to the repository can
-forge a token for any user and any role. Fixing it means moving the secret to an
-environment variable in all four files, rotating it, and treating every existing
-token as invalid.
+`SEC-04` — a shared HMAC secret committed in four files, letting anyone with
+read access forge a token for any role — was closed on 2026-09-12 by
+[ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md).
+Tokens are now RS256 and signed only by Keycloak.
+
+The two Keycloak client secrets have development defaults in the committed realm
+file. That is deliberate — a fresh clone must be able to sign in — and safe only
+for a laptop: override both before the realm is reachable by anyone else, and
+remember that `--import-realm` skips a realm that already exists, so a secret
+changed after the first start must be changed in the admin console too.
 
 **Rules when working here.** Never write a secret's value into a document, a
 commit message, or the dev log — name the variable instead. The redaction rules
@@ -314,13 +365,16 @@ are in [../dev-log/README.md](../dev-log/README.md).
 | 8084 | Notification Service | yes | Not behind the gateway — `SEC-11` |
 | 8761 | Discovery Service (Eureka) | yes | Dashboard is public and writable — `SEC-12` |
 | 8888 | Config Server | yes | Serves every service's configuration, secrets included |
+| 8090 | Keycloak | `KEYCLOAK_PORT` | Must be reachable from the browser. The admin console is on the same port — risk 6 in the migration plan |
+| 9000 | Keycloak management | no | `/health/ready`, used by the Compose healthcheck |
 | 3306 | MySQL | `MYSQL_PORT` | root/root |
 | 5672 / 15672 | RabbitMQ / management UI | yes | guest/guest |
 | 9090 | Prometheus | `PROMETHEUS_PORT` | `observability` profile only. Unauthenticated |
 | 3001 → 3000 | Grafana | `GRAFANA_PORT` | `observability` profile only. Anonymous read, `admin`/`admin` to edit |
 
 For a demonstration on a laptop this is convenient. On any shared network, only
-5173 and 8080 should be published; the rest belong inside the Docker network.
+5173, 8080 and Keycloak's public endpoints on 8090 (not its admin console) should
+be published; the rest belong inside the Docker network.
 
 ---
 
@@ -342,6 +396,10 @@ For a demonstration on a laptop this is convenient. On any shared network, only
 | `SPRING_PROFILES_ACTIVE` | Restart everything; note the database changes with it |
 | A gateway route or security rule | Rebuild and restart api-gateway |
 | `backend/init-db/*.sql` | Only ever runs on a **fresh** volume — `docker compose down -v` first |
+| `backend/keycloak/realm-techzone.json` | `--import-realm` **skips a realm that already exists**. Drop the `keycloak` database (or `down -v`) and restart Keycloak — or make the same change in the admin console. Editing the file alone changes nothing on a running stack |
+| `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWK_SET_URI` | Restart the gateway and the three business services |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | Restart user-service **and** change the client's secret in the realm if it already exists |
+| Any `VITE_KEYCLOAK_*` value | `docker compose build frontend && docker compose up -d frontend` |
 
 ---
 

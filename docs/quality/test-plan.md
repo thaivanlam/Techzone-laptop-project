@@ -159,13 +159,16 @@ at exactly one class.
 runner on the front end — no npm dependency was added, and none is needed.
 
 **What it owns.** Business rules with no I/O: cart stock arithmetic,
-special-price derivation, SKU composition, JWT claim extraction and validity,
-image-path resolution, password verification, role defaulting, reducer
+special-price derivation, SKU composition, the Keycloak `realm_access.roles`
+claim shape, image-path resolution, the account-creation role allow-list, reducer
 transitions, money formatting. A unit test that needs a database is misplaced.
 
-Two are worth calling out. The **gateway filter** is the single point where the
-platform decides whether a request is allowed through, so its truth table is
-written out case by case rather than sampled. The **front-end reducers** import
+Two are worth calling out. The **role converter** is the one place ADR-0012
+changed a claim's *shape* rather than its source — reading the old flat `roles`
+claim out of a Keycloak token yields no authorities and a silent 403 everywhere — so
+`KeycloakRealmRoleConverterTest` pins it. (The gateway's truth table, which used to
+be a unit test of `AuthenticationFilter`, is now an integration test of the real
+security chain; see §6.) The **front-end reducers** import
 straight out of the frontend submodule — they have no imports of their own, so
 Node loads them as plain ES modules, which is how the SPA gets real unit tests
 without adding Vitest, jsdom or Testing Library to its `package.json`.
@@ -188,14 +191,19 @@ Spring's `Binder` for configuration.
 | Controller → HTTP | URL mapping, query-parameter defaulting, JSON shape, and the `@RestControllerAdvice` that turns domain exceptions into 400/404 |
 | Repository → Hibernate → SQL | Derived queries, hand-written JPQL, paging, cascades, and a `Specification` filter as real SQL |
 | order-service → product-service | URL assembly, base-URL normalisation, deserialisation, the reduce-stock body shape, and how remote failures surface |
-| Security filter chain | The real `SecurityConfig`, bean validation on sign-up, and the `Set-Cookie` header carrying the session |
+| Resource-server filter chains | Each service's real `SecurityConfig` with a mocked `JwtDecoder` and `SecurityMockMvcRequestPostProcessors.jwt()`: 401 without a token, 401 for a forged one, 403 for a missing role, the old cookie ignored, composite admin roles — `ProductServiceSecurityTest`, `OrderServiceSecurityTest`, `AuthControllerIntegrationTest` |
+| The gateway security chain | `GatewayBearerTokenSecurityTest` boots the gateway with a mocked `ReactiveJwtDecoder` and drives the full truth table through `WebTestClient` |
 | The deployed gateway policy | The shipped `application.yaml`, bound and asserted: no admin route on the public list, every mapping names a role |
 
-That last one closes a loop the others cannot. The filter unit test proves the
-filter enforces whatever policy it is handed; the policy test proves the policy
-actually shipped is the one
-[security-model.md](../architecture/security-model.md) documents. Neither alone
-would catch a route quietly moved onto the public list.
+That last one closes a loop the others cannot. The chain test proves the chain
+enforces the policy it is built from; the policy test proves the policy actually
+shipped is the one [security-model.md](../architecture/security-model.md)
+documents. Neither alone would catch a route quietly moved onto the public list.
+
+**No test starts Keycloak.** Unit and integration tests replace the decoder, which
+is the right seam: the realm is configuration, and what the code owns is the chain
+and the claim shape. The realm itself is exercised by the system and acceptance
+suites, which obtain real tokens from it.
 
 This level is also where the platform's most characteristic defect class gets
 caught: a handler that works but answers with the wrong status
@@ -216,9 +224,10 @@ backend/notification-service/src/test/resources/application.yml
 
 Each disables Config Server and Eureka, points the datasource at in-memory H2
 with `ddl-auto: create-drop`, and supplies throw-away values for the properties
-the beans require. The JWT secret in those files signs tokens that exist only
-inside a test run; mail and Stripe settings are placeholders that are never
-contacted. **No real secret appears in any test file.**
+the beans require. The resource-server `issuer-uri` and `jwk-set-uri` in those
+files point at `keycloak.invalid` (RFC 2606 reserved) — required for the
+auto-configuration, never contacted, and guaranteed to fail loudly if a test ever
+does try. Mail, Stripe and the Keycloak admin client secret are placeholders. **No real secret appears in any test file.**
 
 Two details that are easy to trip over, documented in the files themselves:
 
@@ -238,17 +247,20 @@ requirements. Every request travels gateway → Eureka lookup → service →
 database, and back. Nothing is stubbed.
 
 **Tool.** Node's built-in test runner with `fetch`, in
-[`tests/system/`](../../tests/system). A small `Session` helper keeps cookies the
-way a browser does, so the tests exercise the real cookie-based authentication
-path rather than a bearer-token shortcut.
+[`tests/system/`](../../tests/system). A small `Session` helper holds an access token
+and sends it as `Authorization: Bearer`, exactly as the SPA does. The token is
+real: obtained from Keycloak by password grant against the development-only
+`techzone-tests` client. What is skipped is the browser redirect, not the
+verification.
 
 **What it owns** — properties no single service can prove:
 
 - All three services registered and reachable under their documented prefixes;
   path rewriting; CORS pre-flight from the SPA origin; an unknown prefix 404s.
 - The access matrix **as deployed**: anonymous, customer, seller and
-  administrator against public, cart, seller and admin routes; a rubbish cookie
-  refused; signing out closing access again.
+  administrator against public, cart, seller and admin routes; a rubbish token and a
+  forged RS256 token both refused with 401 (`BUG-19`); the old cookie ignored;
+  dropping the token closing access again.
 - Catalogue reads: page envelope, discount arithmetic holding across the whole
   catalogue, sorting, price and brand filters, keyword search, and that the
   image URL each product advertises is a path the gateway really serves an
@@ -294,9 +306,11 @@ Scenario: The shop will not sell more units than it has
   And nothing is added to the cart
 ```
 
-Two scenarios in `staff-boundaries.feature` are marked **KNOWN GAP**: they
-describe protections the platform does not yet have (`SEC-01`, self-granted
-`ROLE_ADMIN`; `SEC-07`, any shopper listing every cart). They are written as
+One scenario in `staff-boundaries.feature` is still marked **KNOWN GAP**: `SEC-07`,
+any shopper listing every cart. The `SEC-01` scenario — self-granted `ROLE_ADMIN` —
+was inverted on 2026-09-12 when ADR-0012 closed the defect, and now asserts that a
+self-registered shopper is a plain customer and that not even an administrator can
+create another administrator through the API. Gaps are written as
 acceptance criteria because that is what they are, and the executable tests
 record the current answer while naming the defect — so the gap is visible in the
 suite rather than absent from it.
@@ -411,7 +425,7 @@ correctly. `docker compose build` the services you have changed before concludin
 that a failure is a code defect.
 
 Everything the suites need is configurable from the environment — gateway URL,
-cookie name, account credentials, timeouts.
+Keycloak URL, realm and client secrets, account credentials, timeouts.
 
 ---
 
@@ -500,6 +514,16 @@ Three rules follow:
 permanently red suite is an ignored suite. Pinning real behaviour keeps every
 failure meaningful today, and turns each fix into a test that has to be
 consciously updated — exactly the review moment a fix deserves.
+
+**ADR-0012 closed four pinned defects at once** (2026-09-12) and is a worked
+example of rule 3 in both of its forms:
+
+| Defect | Was pinned by | What happened |
+|---|---|---|
+| `BUG-19` | `AuthenticationFilterTest.forgedTokenEscapesTheFilter`, `JwtUtilsTest.tamperedTokenThrowsInsteadOfReturningFalse`, `JwtServiceTest` | The classes under test were **deleted**, so these tests went with them — but the expectation was carried forward, inverted, into `GatewayBearerTokenSecurityTest.forgedTokenIsUnauthorized`, the `unverifiableTokenIsUnauthorized` case in each service's security test, and a forged-RS256 case in `access-control.test.js`. A test is only deleted when its subject is; its expectation never is |
+| `SEC-01` | `AuthServiceImplTest`, `staff.test.js` | Inverted: `adminRoleIsNotGrantable`, and the two SEC-01 scenarios in `staff.test.js` |
+| `BUG-03`, `SEC-13` | `JwtUtilsTest` | Deleted with `JwtUtils`; the cookie no longer exists. Revocation is asserted by "signing out ends the session everywhere" in `account.test.js` |
+| `SEC-10` | `AuthenticationFilterTest` | Still open — its characterisation moved to `GatewayBearerTokenSecurityTest.internalRouteIsPublic` and `ProductServiceSecurityTest.internalApiIsUnauthenticated` |
 
 Which test pins which defect is tabulated in
 [test-report.md](test-report.md#6-known-wrong-behaviour-under-test). The count

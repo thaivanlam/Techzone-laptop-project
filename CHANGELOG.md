@@ -23,6 +23,17 @@ No version has been tagged yet. Everything below ships in the first release.
 
 ### Added
 
+- **Sign-in through Keycloak.** Signing in, registering and signing out now
+  happen on the TechZone account service — a Keycloak 26 container on port
+  **8090**, with the realm imported from `backend/keycloak/realm-techzone.json` —
+  and the shop receives an RS256 access token by Authorization Code + PKCE.
+  Every service verifies that token itself. Password reset, account lockout after
+  repeated failures and "sign out everywhere" come with it.
+  [ADR-0012](docs/architecture/decisions/0012-keycloak-oidc-authentication.md).
+- `POST /user-manager/api/admin/users` — an administrator creates a seller (or
+  customer) account, which starts with a one-time temporary password the holder
+  must change at first sign-in. The admin dashboard's **Add Seller** form uses it.
+
 - **A record of every development session**, kept in a separate private
   repository. `scripts/export_session.py` distils the AI assistant's local
   transcripts — which the tool deletes after 30 days — into one markdown file
@@ -172,6 +183,27 @@ No version has been tagged yet. Everything below ships in the first release.
 
 ### Changed
 
+- **Breaking — everyone's password changes.** The demo accounts were recreated in
+  Keycloak; existing BCrypt passwords could not be carried over. Sign in with the
+  **email address**: `admin@example.com`, `seller1@example.com`,
+  `user1@example.com`, `user2@example.com` — see
+  [`docs/operations/running-locally.md`](docs/operations/running-locally.md#seeded-users).
+- **Breaking for API consumers.** Authentication is `Authorization: Bearer
+  <token>`; the `springBootEcom` cookie is gone. User administration moved from
+  `/user-manager/api/auth/{sellers,customers}` to
+  `/user-manager/api/admin/users/{sellers,customers}` and requires `ROLE_ADMIN`.
+- Registration no longer offers a role. Every new account is a customer; sellers
+  are created by an administrator; administrators are appointed only in the
+  Keycloak console.
+- **Profile → Change Password** opens Keycloak's account console instead of an
+  in-shop form.
+- The stack gains a tenth container. Keycloak starts with the infrastructure in
+  every run mode, and new variables configure it (`KEYCLOAK_*`,
+  `VITE_KEYCLOAK_*`) — see
+  [`docs/operations/configuration-reference.md`](docs/operations/configuration-reference.md).
+- An idle session now ends after 30 minutes and the next action goes to the
+  sign-in page, rather than the shop failing silently after 50 minutes.
+
 - The root [`README.md`](README.md) is now the project's front page rather than
   a pointer file: a header banner, a Mermaid service diagram, stack badges, a
   three-step quick start, and collapsible sections for run modes, environment
@@ -197,7 +229,20 @@ No version has been tagged yet. Everything below ships in the first release.
   segment matches the scheme every other endpoint follows. The old paths are
   gone, not aliased.
 
+### Removed
+
+- `POST /user-manager/api/auth/signin`, `/signup` and `/signout`;
+  `POST /user-manager/api/users/password/verify` and `PUT /user-manager/api/users/password`.
+  They answer 404.
+- The `password` column of the `user` table (no longer mapped — drop it by hand on
+  an existing database) and the `password` field of the admin seller and customer
+  lists, which returned password hashes.
+
 ### Fixed
+
+- A forged token is refused with `401` instead of `500` (`BUG-19`).
+- The browser no longer believes it is signed in after its session has expired
+  (`BUG-03`).
 
 - Product specifications now load for signed-out visitors. The read endpoint sat
   outside the gateway's public-path pattern, so browsing a laptop anonymously
@@ -207,6 +252,25 @@ No version has been tagged yet. Everything below ships in the first release.
   specifications opened an empty form.
 
 ### Security
+
+- **Fixed — anyone could register as an administrator (`SEC-01`).** There is no
+  longer a sign-up request that carries a role, and no endpoint in the platform
+  can grant `ROLE_ADMIN`.
+- **Fixed — user administration was public (`SEC-02`).** Listing and deleting
+  customers and sellers requires `ROLE_ADMIN`, checked at the gateway and in
+  user-service.
+- **Fixed — the token signing secret was in the repository (`SEC-04`).** No
+  component holds a signing key; tokens are signed by Keycloak and verified
+  against its public keys.
+- **Fixed — sign-out did not end the session (`SEC-13`).** Sign-out revokes the
+  session; tokens live five minutes and are no longer readable from a cookie or
+  `localStorage`.
+- **Not fixed by the Keycloak move**, and stated so nobody assumes otherwise:
+  ownership is still unchecked on products, carts, orders and addresses (`SEC-05`,
+  `SEC-07`, `SEC-08`, `SEC-09`), and the internal stock API, the mail endpoint and
+  the Eureka registry are still unauthenticated (`SEC-10`–`SEC-12`). The two
+  Keycloak client secrets and the console password have published development
+  defaults that must be overridden before the stack is reachable by anyone else.
 
 - **BUG-21 recorded — the most serious of the three found while testing.** Two
   concurrent "add to cart" requests for the same product both insert a cart

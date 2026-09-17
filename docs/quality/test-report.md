@@ -50,8 +50,30 @@ contradict the specification on purpose — see
 
 ## 2. Runs Recorded
 
-Four runs are recorded here. They differ in what was available, and the
+Five runs are recorded here. They differ in what was available, and the
 distinction matters when reading a result.
+
+### Run E — offline levels after ADR-0012, 2026-09-14
+
+Run after authentication moved to Keycloak. **Offline levels only**: the system and
+acceptance suites were rewritten for bearer tokens but were **not** run against a
+live stack in this run, and remain to be. The realm import itself was verified
+separately against a live Keycloak 26.0.7 container: RS256 tokens, the `email`
+claim, `realm_access.roles` with `ROLE_ADMIN → ROLE_SELLER → ROLE_USER` expanded,
+the service account's `view-users` and `manage-users`, and `ROLE_USER` as the only
+role of an account created with none.
+
+| Suite | Tests | Failures | Result |
+|---|---|---|---|
+| api-gateway | 33 | 0 | ✅ |
+| user-service | 34 | 0 | ✅ |
+| product-service | 66 | 0 | ✅ |
+| order-service | 64 | 0 | ✅ |
+| `tests/frontend` | 44 | 0 | ✅ — unchanged, because the auth slice kept its shape |
+| notification-service | — | — | not affected, not re-run |
+| `tests/system`, `tests/acceptance` | 63 + 37 | — | ❌ **not run** — need the full stack with Keycloak |
+
+The inventory in §3 below predates this run; §6 and §8 are updated for it.
 
 ### Run A — offline levels, re-run for this report
 
@@ -294,7 +316,7 @@ Named so that absence is never mistaken for coverage.
 
 ## 6. Known-Wrong Behaviour Under Test
 
-Twenty-one cases assert behaviour that contradicts
+As of Run E, fewer cases assert behaviour that contradicts
 [../requirements/srs.md](../requirements/srs.md). They pass — that is the point:
 each pins a registered defect so it cannot worsen unnoticed, and each **will fail
 the moment the defect is fixed**, which is how the register learns the fix
@@ -303,19 +325,21 @@ happened.
 | Defect | Pinned by | What is pinned |
 |---|---|---|
 | `BUG-01` | `OrderServiceImplTest` | A checkout failing on its second line leaves the first line's stock taken |
-| `BUG-03` | `JwtUtilsTest` | The cookie's 24-hour lifetime against the token's ~50 minutes |
 | `BUG-04` | `ProductServiceImplTest` · `catalogue.test.js` | A search matching nothing raises an error instead of returning an empty page |
 | `BUG-06` | `EmailServiceImplTest` | A failed send returns normally and the message is lost |
 | `BUG-07` | `CartServiceImplTest` | The stored cart total drifts from the sum of its lines after a price change |
 | `BUG-10` | `ProductServiceClientIntegrationTest` | A remote 404 reaches the caller untranslated |
 | `BUG-12` | `ProductControllerIntegrationTest` · `CartControllerIntegrationTest` | A successful read answered with a redirect status |
 | `BUG-13` | `ProductRepositoryIntegrationTest` | Deleting a category deletes its products |
-| **`BUG-19`** | `JwtServiceTest` · `JwtUtilsTest` · `AuthenticationFilterTest` | A forged signature escapes as an exception instead of returning `false` — at the gateway, a 500 where a 401 belongs |
 | **`BUG-20`** | `CartServiceImplTest` · `cart-and-checkout.test.js` | A customer who has never had a cart gets a 500 on their first cart view |
-| `SEC-01` | `AuthServiceImplTest` · `staff.test.js` | Anyone can register as an administrator |
-| `SEC-07` | `staff.test.js` · `access-control.test.js` | Any signed-in shopper can list every cart |
-| `SEC-10` | `AuthenticationFilterTest` · `GatewaySecurityPolicyTest` | The internal service-to-service route is on the public list |
-| `SEC-13` | `JwtUtilsTest` | The auth cookie is neither `HttpOnly` nor `Secure` |
+| `SEC-07` | `staff.test.js` · `access-control.test.js` · `OrderServiceSecurityTest` | Any signed-in shopper can list every cart |
+| `SEC-10` | `GatewayBearerTokenSecurityTest` · `ProductServiceSecurityTest` · `GatewaySecurityPolicyTest` | The internal service-to-service route is unauthenticated |
+| `SEC-12` | `GatewayBearerTokenSecurityTest` | The Eureka registry is on the public list |
+
+**Closed on 2026-09-12 by ADR-0012, and no longer pinned as wrong:** `BUG-03`,
+`BUG-19`, `SEC-01`, `SEC-13`. `BUG-19` and `SEC-01` are now asserted the right way
+round; the `BUG-03` and `SEC-13` cases went with the cookie. See
+[test-plan.md §14](test-plan.md#14-characterisation-tests).
 
 Each such test names the defect id and says, in a comment or an assertion
 message, what the expectation must become once the defect is fixed.
@@ -378,14 +402,16 @@ Against the exit criteria in
 |---|---|---|
 | 1 | All automated suites pass against a freshly built stack | ⚠️ **Nearly** — 342 of 350 green; the 8 destructive cases have never run |
 | 2 | The UAT checklist walked and signed off | ❌ Not recorded |
-| 3 | No open Critical defect | ❌ **Five open** — `SEC-01`, `SEC-02`, `SEC-03`, `SEC-04`, `BUG-01` |
+| 3 | No open Critical defect | ❌ **Two open** — `SEC-03`, `BUG-01`. `SEC-01`, `SEC-02` and `SEC-04` closed 2026-09-12 by ADR-0012 |
 | 4 | This report regenerated | ✅ |
 | 5 | `CHANGELOG.md` updated for the release | — no version tagged yet |
 
 **Verdict: not releasable, and the blocker is not test coverage.** Criterion 3
-fails on its own: anyone can register as an administrator, user administration is
-public, payment success is asserted by the browser, and the signing secret is in
-the repository. The platform is a sound demonstration of the architecture and is
+fails on its own: payment success is asserted by the browser (`SEC-03`) and a
+failed multi-line order leaks stock (`BUG-01`). Moving authentication to Keycloak
+removed three Critical findings but no authorization finding — SEC-05, SEC-07,
+SEC-08 and SEC-09 are all still open. Criterion 1 also regressed to unverified
+after Run E, until the rewritten system and acceptance suites run live. The platform is a sound demonstration of the architecture and is
 not fit to face the internet.
 
 Remediation order is proposed in

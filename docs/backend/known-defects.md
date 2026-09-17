@@ -15,6 +15,12 @@ runs — the first two entries here that no amount of reading had turned up,
 because one only appears when an order is actually placed and the other only
 while a container is being replaced under traffic.
 
+On 2026-09-12, [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md)
+moved authentication to Keycloak. That closed SEC-01, SEC-02, SEC-04, SEC-13,
+BUG-03, BUG-19 and OPS-11 together, by deleting the code they lived in rather
+than patching it. **It closed no authorization defect** — SEC-05's ownership half
+and SEC-07 to SEC-12 are exactly as open as they were, and the ADR says so.
+
 ---
 
 ## Table of Contents
@@ -54,10 +60,10 @@ the project is demonstrated or extended.
 
 | ID | Severity | Defect | Area |
 |---|---|---|---|
-| [SEC-01](#sec-01--anyone-can-register-as-an-administrator) | Critical | Public signup accepts a self-selected `admin` role | user-service |
-| [SEC-02](#sec-02--user-administration-endpoints-are-fully-public) | Critical | Listing and deleting users sits under a public gateway path | user-service, gateway |
+| [SEC-01](#sec-01--anyone-can-register-as-an-administrator) | ~~Critical~~ | **Fixed 2026-09-12 (ADR-0012)** — public signup accepted a self-selected `admin` role | user-service |
+| [SEC-02](#sec-02--user-administration-endpoints-are-fully-public) | ~~Critical~~ | **Fixed 2026-09-12 (ADR-0012)** — listing and deleting users sat under a public gateway path | user-service, gateway |
 | [SEC-03](#sec-03--payment-success-is-asserted-by-the-client) | Critical | No Stripe webhook; the browser declares whether it paid | order-service |
-| [SEC-04](#sec-04--the-jwt-signing-secret-is-committed-to-the-repository) | Critical | Shared HMAC secret is a literal in four tracked files | gateway, config-server |
+| [SEC-04](#sec-04--the-jwt-signing-secret-is-committed-to-the-repository) | ~~Critical~~ | **Fixed 2026-09-12 (ADR-0012)** — shared HMAC secret was a literal in four tracked files | gateway, config-server |
 | [SEC-05](#sec-05--seller-product-endpoints-have-neither-a-role-check-nor-an-ownership-check) | High | Any *seller* can edit or delete any product — role half fixed 2026-08-25, ownership half open | product-service, gateway |
 | [SEC-06](#sec-06--the-specification-controller-sits-outside-the-gateways-path-scheme) | ~~High~~ | **Fixed 2026-08-25** — spec writes unchecked; spec reads wrongly required a login | product-service, gateway |
 | [SEC-07](#sec-07--get-carts-returns-every-users-cart) | High | Cart contents of all users readable by any account | order-service |
@@ -66,10 +72,10 @@ the project is demonstrated or extended.
 | [SEC-10](#sec-10--the-internal-stock-api-is-unauthenticated-on-a-published-port) | High | Arbitrary stock decrement from the host | product-service |
 | [SEC-11](#sec-11--the-notification-endpoint-can-send-arbitrary-mail) | High | Unauthenticated send from the project's Gmail account | notification-service |
 | [SEC-12](#sec-12--the-eureka-registry-is-public-and-writable) | Medium | Registry enumerable and injectable through the gateway | discovery-service, gateway |
-| [SEC-13](#sec-13--jwt-cookie-flags-and-the-absence-of-revocation) | Medium | `httpOnly=false`, `secure=false`, no `SameSite`, no revocation | user-service |
+| [SEC-13](#sec-13--jwt-cookie-flags-and-the-absence-of-revocation) | ~~Medium~~ | **Fixed 2026-09-12 (ADR-0012)** — `httpOnly=false`, `secure=false`, no `SameSite`, no revocation | user-service |
 | [BUG-01](#bug-01--a-failed-multi-line-order-leaves-stock-permanently-decremented) | Critical | Cross-service writes are not compensated on rollback | order-service |
 | [BUG-02](#bug-02--concurrent-checkout-oversells-the-last-unit) | High | Read-modify-write with no locking | product-service |
-| [BUG-03](#bug-03--the-auth-cookie-outlives-the-token-by-23-hours) | High | `maxAge` 24 h vs. a 50-minute token | user-service |
+| [BUG-03](#bug-03--the-auth-cookie-outlives-the-token-by-23-hours) | ~~High~~ | **Fixed 2026-09-12 (ADR-0012)** — `maxAge` 24 h vs. a 50-minute token | user-service |
 | [BUG-04](#bug-04--an-empty-search-result-is-returned-as-400-bad-request) | High | "No matches" is indistinguishable from a bad request | product-service |
 | [BUG-05](#bug-05--updatecategory-rebuilds-the-entity-from-the-dto) | High | Any column absent from the DTO is nulled on update | product-service |
 | [BUG-06](#bug-06--a-failed-email-send-is-swallowed-and-the-message-is-lost) | High | Exception discarded, message acked, no DLQ | notification-service |
@@ -85,14 +91,14 @@ the project is demonstrated or extended.
 | [BUG-16](#bug-16--revenue-includes-cancelled-orders-and-is-returned-as-a-string) | Medium | Aggregates ignore order status | order-service |
 | [BUG-17](#bug-17--seller-order-listing-pages-in-memory) | Medium | Every order loaded on every call | order-service |
 | [BUG-18](#bug-18--order-status-is-an-unvalidated-free-text-string) | Medium | No enum, no state machine | order-service |
-| [BUG-19](#bug-19--a-forged-jwt-signature-escapes-the-validity-check) | Medium | `SignatureException` uncaught: a forged token becomes a 500, not a 401 | gateway, product, order, user |
+| [BUG-19](#bug-19--a-forged-jwt-signature-escapes-the-validity-check) | ~~Medium~~ | **Fixed 2026-09-12 (ADR-0012)** — `SignatureException` uncaught: a forged token became a 500, not a 401 | gateway, product, order, user |
 | [BUG-20](#bug-20--the-cart-page-returns-500-for-a-customer-who-has-never-had-a-cart) | Medium | `getCart` dereferences a null cart, so every new customer's first cart view is a 500 | order-service |
 | [BUG-21](#bug-21--two-concurrent-adds-of-the-same-product-permanently-break-a-cart) | **High** | Check-then-insert with no unique constraint; a duplicated cart line bricks the account's cart for ever | order-service |
 | [BUG-22](#bug-22--a-payment-method-shorter-than-four-characters-fails-the-order-with-500) | Medium | A bean-validation constraint reached only at persist time turns a short payment method into an untyped 500, after stock was already decremented | order-service |
 | [BUG-23](#bug-23--replacing-a-service-instance-blackholes-its-route-for-about-twenty-seconds) | Medium | No retry and no health-checked load balancing: a replaced container costs about 20s in which most requests to that route answer 503 | gateway, all services |
 | [OPS-01](#6-low-and-hygiene) | Medium | Uploaded product images are lost on container recreation; `default.png` is backed by no file | product-service |
 | [OPS-02](#6-low-and-hygiene) | Medium | No upload allow-list, replaced files never deleted | product-service |
-| [OPS-03](#6-low-and-hygiene) | Low | jjwt version skew (0.12.6 vs 0.13.0) | product-service |
+| [OPS-03](#6-low-and-hygiene) | ~~Low~~ | **Gone 2026-09-12** — jjwt version skew; jjwt is no longer a dependency anywhere | product-service |
 | [OPS-04](#6-low-and-hygiene) | Low | `double` used for money across services | product, order |
 | [OPS-05](#6-low-and-hygiene) | Low | `GenerationType.AUTO` on `Product` only | product-service |
 | [OPS-06](#6-low-and-hygiene) | Low | SKU has no unique constraint | product-service |
@@ -100,12 +106,23 @@ the project is demonstrated or extended.
 | [OPS-08](#6-low-and-hygiene) | Low | Notification service on Java 17 and a different base package | notification-service |
 | [OPS-09](#6-low-and-hygiene) | Low | Dead code across four modules | backend |
 | [OPS-10](#6-low-and-hygiene) | ~~Low~~ | **Addressed 2026-08-25** — tests were context-load smoke tests only | backend |
+| [OPS-11](#6-low-and-hygiene) | ~~Low~~ | **Fixed 2026-09-12 (ADR-0012)** — Swagger declared bearer while the services used a cookie | product, order |
 
 ---
 
 ## 3. Critical
 
 ### SEC-01 — Anyone can register as an administrator
+
+> **Fixed on 2026-09-12 by [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md).**
+> Kept here for the reproduction record. The fix is not that `roles` is validated
+> more carefully — there is no `roles` field and no signup endpoint. Registration
+> is Keycloak's page, `ROLE_USER` is the realm's default role, and the only
+> endpoint that assigns a role (`POST /api/admin/users`) requires `ROLE_ADMIN` and
+> refuses to grant `ROLE_ADMIN` even then. Regression tests:
+> `AuthServiceImplTest.adminRoleIsNotGrantable`,
+> `AuthControllerIntegrationTest.signupIsGone`, and the two SEC-01 scenarios in
+> `tests/acceptance/staff.test.js`, which used to assert the defect.
 
 **Location:** `backend/user-service/.../service/AuthServiceImpl.java:93-123`,
 `AuthController.java:35` (`POST /api/auth/signup`)
@@ -149,6 +166,13 @@ seeded-account-only flow.
 ---
 
 ### SEC-02 — User administration endpoints are fully public
+
+> **Fixed on 2026-09-12 by [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md).**
+> The four handlers moved from `/api/auth/**` to `AdminUserController` at
+> `/api/admin/users/**`, which the gateway's existing rule and user-service's own
+> `SecurityConfig` both restrict to `ROLE_ADMIN`. Deleting a user now removes the
+> Keycloak account as well as the profile row. Regression tests: the SEC-02
+> nested class in `AuthControllerIntegrationTest`.
 
 **Location:** `backend/user-service/.../controller/AuthController.java:21,57-85`
 
@@ -216,6 +240,14 @@ source of payment truth. Until the webhook arrives, keep the order in a
 ---
 
 ### SEC-04 — The JWT signing secret is committed to the repository
+
+> **Fixed on 2026-09-12 by [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md).**
+> No service holds a signing key. Tokens are RS256, signed by the realm, and
+> verified against its public JWKS; `spring.app.jwtSecret` is gone from all seven
+> files that carried it. Rotating the old literal is moot — nothing reads it.
+> The development defaults for the two Keycloak client secrets are in the realm
+> file and Compose, named as such, and are overridden through
+> `KEYCLOAK_ADMIN_CLIENT_SECRET` and `KEYCLOAK_TESTS_CLIENT_SECRET`.
 
 **Location:**
 - `backend/api-gateway/src/main/resources/application.yaml` (`spring.app.jwtSecret`)
@@ -520,6 +552,13 @@ int reduceStock(@Param("id") Long id, @Param("q") int q);   // 0 rows == insuffi
 ---
 
 ### BUG-03 — The auth cookie outlives the token by 23 hours
+
+> **Fixed on 2026-09-12 by [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md).**
+> There is no cookie and no `localStorage` copy of the sign-in response. The SPA
+> seeds its auth state from the verified token at startup, refreshes before each
+> request, and on a 401 refreshes once and otherwise sends the user to Keycloak
+> (`frontend/src/api/api.js`). Validity is a property of the token, asked of the
+> adapter, not a separately hand-written expiry.
 
 **Location:** `backend/user-service/.../security/jwt/JwtUtils.java:51-57`,
 `config/user-service.yml` (`spring.app.jwtExpirationMs`)
@@ -941,6 +980,17 @@ validate transitions in the service.
 
 ### BUG-19 — A forged JWT signature escapes the validity check
 
+> **Fixed on 2026-09-12 by [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md)**
+> — by deleting the four validators rather than widening their catch lists. Spring
+> Security's decoder raises `BadJwtException` for an unverifiable signature and the
+> entry point answers 401. The two characterisation tests that pinned the 500
+> (`AuthenticationFilterTest.forgedTokenEscapesTheFilter`,
+> `JwtUtilsTest.tamperedTokenThrowsInsteadOfReturningFalse`) and `JwtServiceTest`
+> went with the classes they tested; their expectation is carried forward, inverted,
+> by `GatewayBearerTokenSecurityTest.forgedTokenIsUnauthorized`, the
+> `unverifiableTokenIsUnauthorized` case in each service's security test, and the
+> BUG-19 case in `tests/system/access-control.test.js`.
+
 **Found:** 2026-08-25, while writing the unit tests for the JWT components —
 not by the original source audit.
 
@@ -1209,7 +1259,7 @@ failing unrelated requests") is still open.
 | **OPS-08** | notification-service targets **Java 17** (pom and Dockerfile) and uses the base package `vn.vti.dtn2504.notificationservice` while every other module is Java 21 under `com.ecommerce.*`. | `notification-service` | Align both. Harmless at runtime, but it breaks shared tooling and parent-pom conventions. |
 | **OPS-09** | Dead code: `EmptyArrayException` (both services), `CartRepository.findCartsByProductId`, `CartService.updateProductInCarts`, `PaymentRepository`, order-service's `WebMvcConfig` image handler, `OrderRequestDTO.paymentMethod` (ignored — the controller uses the path variable), `SendNotificationRequest`, `ProductRepository.findByCategoryOrderByPriceAsc`, the non-paginated `findByProductNameLikeIgnoreCase`, `CategoryServiceImpl.nextId`. | backend | Delete. |
 | ~~**OPS-10**~~ | ~~Every module's test suite is a single Spring context-load smoke test.~~ **Addressed 2026-08-25.** Five modules now carry unit and integration suites (146 unit, 59 integration), and the superproject carries system, acceptance and front-end unit suites. Thirteen entries in this register have a characterisation test pinning their current behaviour. See [../quality/test-plan.md](../quality/test-plan.md). | backend | Remaining gaps are listed under ["What is deliberately not covered"](../quality/test-plan.md#16-what-is-deliberately-not-covered): React components, browser-level acceptance, Stripe, real SMTP, RabbitMQ end to end, load, and concurrency. |
-| **OPS-11** | `SwaggerConfig` in product-service and order-service declares a **bearer** security scheme, but both services authenticate by cookie. Swagger's Authorize button produces requests that do not work. | `SwaggerConfig` | Declare an `apiKey` scheme with `in: cookie` and name `springBootEcom`. |
+| ~~**OPS-11**~~ | **Fixed 2026-09-12 (ADR-0012)** — the declaration became true rather than being changed. `SwaggerConfig` in product-service and order-service declares a **bearer** security scheme, and both services previously authenticated by cookie. Swagger's Authorize button produces requests that do not work. | `SwaggerConfig` | Declare an `apiKey` scheme with `in: cookie` and name `springBootEcom`. |
 
 ### SEC-12 — The Eureka registry is public and writable
 
@@ -1223,6 +1273,13 @@ then load-balance real user traffic to.
 mapping. Do not publish 8761 outside the Docker network.
 
 ### SEC-13 — JWT cookie flags and the absence of revocation
+
+> **Fixed on 2026-09-12 by [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md).**
+> No cookie carries a credential, so its flags no longer matter. Access tokens
+> live five minutes, refresh tokens rotate with reuse disabled, and sign-out calls
+> Keycloak's end-session endpoint, which revokes the session. The acceptance
+> scenario "signing out ends the session everywhere" asserts that a refresh token
+> stops working after logout.
 
 `JwtUtils.generateJwtCookie` sets `httpOnly(false)` and `secure(false)`, and no
 `SameSite` attribute. So the token is readable by any JavaScript on the page
@@ -1243,6 +1300,7 @@ matters. The trade-off as originally accepted is recorded in
 | Defect | Status |
 |---|---|
 | `backend/docker-compose.yml` declared `depends_on: api-gateway: condition: service_healthy` on five services while `api-gateway` had no healthcheck, so the stack could not start as written. | **Fixed.** The gateway now carries a TCP healthcheck (`timeout 3 bash -c '</dev/tcp/127.0.0.1/8080'`) with a 30 s start period, chosen because the gateway has no actuator dependency. |
+| SEC-01, SEC-02, SEC-04, SEC-13, BUG-03, BUG-19, OPS-11 (and OPS-03 made moot) | **Fixed 2026-09-12** by [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md): authentication moved to Keycloak and the hand-written token code was deleted. See the banner on each entry. |
 
 ---
 
@@ -1251,10 +1309,9 @@ matters. The trade-off as originally accepted is recorded in
 Ordered by risk removed per unit of effort, not by severity alone.
 
 **1 — Close the authentication holes (small changes, largest risk reduction)**
-- SEC-01: ignore `roles` on public signup — a few lines.
-- SEC-02: move the four user-admin handlers under `/api/admin/**` — the gateway
-  rule already exists.
-- SEC-04: replace the four hardcoded secrets with `${JWT_SECRET}` and rotate.
+- ~~SEC-01, SEC-02, SEC-04~~ — done 2026-09-12, all three at once, by
+  [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md)
+  rather than by the local fixes listed here originally.
 - ~~SEC-05 (gateway half): add the `/product-manager/api/seller/**` role
   mapping.~~ Done 2026-08-25, together with SEC-06.
 
@@ -1281,8 +1338,8 @@ Ordered by risk removed per unit of effort, not by severity alone.
   so schedule it deliberately.
 
 **6 — Fix the visible correctness bugs**
-- BUG-03, BUG-04, BUG-06, BUG-12, BUG-13, BUG-19. Each is small and each is
-  user-visible. BUG-19 is one catch clause, repeated in four files.
+- BUG-04, BUG-06, BUG-12, BUG-13. Each is small and each is user-visible.
+  (BUG-03 and BUG-19 were closed by ADR-0012.)
 
 **7 — Structural clean-up**
 - BUG-05, BUG-14, BUG-17, BUG-18, and the OPS items, as the surrounding code is
@@ -1301,7 +1358,7 @@ update the expectation in the same change set.
 | Topic | Document |
 |---|---|
 | Per-service detail and trade-offs | [services/api-gateway.md](services/api-gateway.md) · [services/config-server.md](services/config-server.md) · [services/discovery-service.md](services/discovery-service.md) · [services/user-service.md](services/user-service.md) · [services/product-service.md](services/product-service.md) · [services/order-service.md](services/order-service.md) · [services/notification-service.md](services/notification-service.md) |
-| JWT model, role hierarchy, enforcement gaps | [../architecture/security-model.md](../architecture/security-model.md) |
+| Keycloak token model, role hierarchy, enforcement gaps | [../architecture/security-model.md](../architecture/security-model.md) |
 | Accepted trade-offs and their rationale | [../architecture/design-decisions.md](../architecture/design-decisions.md) |
 | Platform limitations and roadmap | [../architecture/system-overview.md](../architecture/system-overview.md#known-limitations) |
 | How these defects are tested for | [../quality/test-plan.md](../quality/test-plan.md) |

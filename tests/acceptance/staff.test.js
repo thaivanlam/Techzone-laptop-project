@@ -74,30 +74,71 @@ describe('Acceptance - staff and customer boundaries', { skip: stackStatus.skipR
     }
   });
 
-  it('Scenario: KNOWN GAP - a shopper can grant themselves administrator rights at sign-up (SEC-01)', async () => {
-    // When a shopper registers and asks for the administrator role
-    const suffix = `${Date.now()}`.slice(-9);
-    const account = {
-      username: `esc${suffix}`,
-      email: `esc${suffix}@techzone.test`,
-      password: 'QaPassw0rd',
-      roles: ['admin'],
-    };
-    const registration = await anonymous().post(paths.signUp, account);
-
-    // Then the shop should refuse - but today it grants the role.
-    assert.equal(registration.status, 200,
-      'if this now fails, SEC-01 has been fixed: rewrite this scenario to expect a refusal');
-
+  it('Scenario: SEC-01 FIXED - a shopper cannot grant themselves administrator rights', async () => {
+    // This scenario used to assert the defect. It asserted that a sign-up body carrying
+    // roles: ['admin'] produced a working administrator, and said in as many words: "if
+    // this now fails, SEC-01 has been fixed: rewrite this scenario to expect a refusal".
+    // ADR-0012 fixed it, so here is that rewrite.
+    //
+    // What closed it is not tighter validation of the roles field. There is no sign-up
+    // endpoint to send a roles field to: registration is Keycloak's, ROLE_USER is the
+    // realm's default role, and assigning anything else became a different API needing a
+    // different token.
+    const { account } = await registerFreshCustomer();
     const { session } = await signIn(account);
-    const identity = await session.get(paths.currentUser);
-    assert.ok(identity.body?.roles?.includes('ROLE_ADMIN'),
-      'if this now fails, SEC-01 has been fixed: rewrite this scenario to expect ROLE_USER');
 
-    // The consequence, stated plainly: the self-granted account really can administer.
+    const identity = await session.get(paths.currentUser);
+    assert.equal(identity.status, 200);
+    assert.deepEqual(identity.body.roles, ['ROLE_USER'],
+      'a self-registered shopper must be a plain customer');
+
+    // And the consequence, stated as plainly as the defect was: the account cannot
+    // administer anything.
     const adminScreens = await session.get(paths.adminProducts);
-    assert.equal(adminScreens.status, 200,
-      'a self-registered administrator reaches the administration screens - this is SEC-01');
+    assert.equal(adminScreens.status, 403,
+      'a self-registered shopper must not reach the administration screens');
+  });
+
+  it('Scenario: SEC-01 - not even an administrator can create another administrator', async () => {
+    // The second half of the fix, and a deliberate cost rather than a bonus. The endpoint
+    // that creates sellers enforces a server-side allow-list of ROLE_SELLER and ROLE_USER,
+    // so no endpoint in the platform can grant ROLE_ADMIN - which means promoting an
+    // administrator now requires Keycloak console access, and the dashboard has lost an
+    // operation it used to have.
+    const suffix = `${Date.now()}`.slice(-9);
+    const response = await administrator.post(paths.adminUsers, {
+      email: `esc${suffix}@techzone.test`,
+      firstName: 'Escalation',
+      lastName: 'Attempt',
+      role: 'ROLE_ADMIN',
+    });
+
+    assert.ok(response.status >= 400,
+      `creating an administrator through the API must be refused, got ${response.status}`);
+  });
+
+  it('Scenario: an administrator creates a seller, who starts with a temporary password', async () => {
+    const suffix = `${Date.now()}`.slice(-9);
+    const response = await administrator.post(paths.adminUsers, {
+      email: `newseller${suffix}@techzone.test`,
+      firstName: 'New',
+      lastName: 'Seller',
+      role: 'ROLE_SELLER',
+    });
+
+    assert.equal(response.status, 200, `creating a seller was refused: ${response.text}`);
+    // The password is returned once, to be handed over out of band, and Keycloak forces a
+    // change at first login. Not emailed: the mail path swallows its own failures (BUG-06).
+    assert.match(response.body?.message ?? '', /temporary password/i);
+  });
+
+  it('Scenario: a seller cannot create accounts', async () => {
+    const response = await seller.post(paths.adminUsers, {
+      email: `bogus${Date.now()}@techzone.test`,
+      role: 'ROLE_SELLER',
+    });
+
+    assert.equal(response.status, 403);
   });
 
   it('Scenario: KNOWN GAP - any signed-in shopper can list every cart (SEC-07)', async () => {
@@ -111,12 +152,16 @@ describe('Acceptance - staff and customer boundaries', { skip: stackStatus.skipR
       `the unguarded cart listing answered ${response.status}`);
   });
 
-  it('a fresh shopper is a plain customer unless they ask for more', async () => {
-    const { account } = await registerFreshCustomer();
-    const { session } = await signIn(account);
+  it('an administrator carries ROLE_SELLER through the realm composite', async () => {
+    // Load-bearing, not tidiness. /product-manager/api/seller/** maps ROLE_SELLER alone, and
+    // the seeded admin reached it before the migration only because the seed script happened
+    // to give them that row too. The realm now states the hierarchy once - ROLE_ADMIN
+    // includes ROLE_SELLER includes ROLE_USER - and Keycloak expands it into the token.
+    // Without it, every seller endpoint would 403 for administrators: a regression created
+    // by the migration, in code the migration never touched.
+    const response = await administrator.get(paths.sellerProducts);
 
-    const identity = await session.get(paths.currentUser);
-
-    assert.deepEqual(identity.body.roles, ['ROLE_USER']);
+    assert.equal(response.status, 200,
+      'an administrator must still reach the seller screens');
   });
 });

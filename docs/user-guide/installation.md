@@ -197,12 +197,18 @@ There are also two engine-room pages, useful only for diagnosis:
 
 ## 8. Signing In the First Time
 
-A fresh installation creates four demonstration accounts. Their usernames,
-passwords and roles are listed in
+A fresh installation creates four demonstration accounts in the account service
+(Keycloak). You sign in with their **email addresses**; the passwords and roles are
+listed in
 [../operations/running-locally.md](../operations/running-locally.md#seeded-users).
 
 They are **development credentials, published in the documentation**. Before
-anyone else can reach this installation, delete them or change what they can do.
+anyone else can reach this installation, delete them or change what they can do —
+and set `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_ADMIN_CLIENT_SECRET` and
+`KEYCLOAK_TESTS_CLIENT_SECRET` in `.env`, because their defaults are published too.
+
+The account service's own console is at `http://localhost:8090/admin`. It is where
+an administrator is appointed: the shop itself cannot do that.
 
 Then read the guide for your role:
 
@@ -243,7 +249,8 @@ The most common problems and their fixes:
 | Checkout does not open the card form | `VITE_STRIPE_PUBLISHABLE_KEY` was missing when the image was built — fill it in and run `docker compose build frontend && docker compose up -d frontend` |
 | No emails arrive | `MAIL_PASSWORD` is not a valid Gmail **app** password. Orders still work |
 | A container keeps restarting | `docker compose logs <name>` will say why; usually a missing value in `.env` |
-| Everything stops working after ~50 minutes | Your sign-in expired. Sign in again |
+| **Login** leads to a page that does not load | The account service (Keycloak, port 8090) is not up yet — it is the slowest container to start. Wait, then `docker compose ps keycloak` |
+| Sign-in succeeds but everything then says "Invalid or expired token" | The Keycloak addresses in `.env` were edited inconsistently. See [../operations/configuration-reference.md](../operations/configuration-reference.md) |
 | Container name conflicts | Another copy of the stack is running — `docker compose down` in both project folders |
 
 Anything not listed here: the full symptom-to-cause table is in

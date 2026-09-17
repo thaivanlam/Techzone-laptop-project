@@ -9,8 +9,23 @@ gateway strips the service prefix before forwarding:
 | `/product-manager/**` | Product Service (`:8081`) | `/**` |
 | `/order-manager/**` | Order Service (`:8083`) | `/**` |
 
-To call a service directly, drop the prefix — `/user-manager/api/auth/signin`
-becomes `http://localhost:8082/api/auth/signin`.
+To call a service directly, drop the prefix — `/user-manager/api/auth/user`
+becomes `http://localhost:8082/api/auth/user`. Each service verifies the token
+itself, so a direct call needs the same bearer token as one through the gateway.
+
+**Authentication.** Every non-public endpoint expects
+`Authorization: Bearer <access token>`, where the token is issued by Keycloak
+(realm `techzone`) — see
+[../architecture/security-model.md](../architecture/security-model.md). There is
+no sign-in, sign-up or sign-out endpoint in the platform; those are Keycloak's
+(ADR-0012). For a quick token from the command line, use the `techzone-tests`
+client in the development realm:
+
+```bash
+curl -s -X POST http://localhost:8090/realms/techzone/protocol/openid-connect/token \
+  -d client_id=techzone-tests -d client_secret="$KEYCLOAK_TESTS_CLIENT_SECRET" \
+  -d grant_type=password -d username=admin@example.com -d password=adminPass
+```
 
 **Access legend:** `Public` (no auth) · `USER` · `SELLER` · `ADMIN` ·
 `Internal` (service-to-service).
@@ -22,29 +37,42 @@ becomes `http://localhost:8082/api/auth/signin`.
 > `/order-manager/api/seller/**` (`ROLE_ADMIN` or `ROLE_SELLER`). Access levels
 > marked below for paths outside those patterns are **convention only**; any
 > authenticated user can reach them through the gateway. See
-> [../architecture/security-model.md](../architecture/security-model.md#enforcement-gaps-worth-knowing).
+> [../architecture/security-model.md](../architecture/security-model.md#what-this-model-does-not-do).
 
 ---
 
 ## User Service — `/user-manager`
 
-### Authentication — `AuthController`
+### Profile — `AuthController`
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| POST | `/user-manager/api/auth/signin` | Public | Log in; returns user info and sets the `springBootEcom` JWT cookie |
-| POST | `/user-manager/api/auth/signup` | Public | Register a new user; publishes a welcome email to RabbitMQ |
-| GET | `/user-manager/api/auth/username` | Public\* | Current logged-in username, read from the JWT cookie |
-| GET | `/user-manager/api/auth/user` | Public\* | Current user details (id, username, roles) |
-| POST | `/user-manager/api/auth/signout` | Public\* | Log out; clears the JWT cookie |
-| GET | `/user-manager/api/auth/sellers` | Public\* | Paginated list of sellers (`pageNumber`) |
-| GET | `/user-manager/api/auth/customers` | Public\* | Paginated list of customers (`pageNumber`) |
-| DELETE | `/user-manager/api/auth/customers/{userId}` | Public\* | Delete a customer |
-| DELETE | `/user-manager/api/auth/sellers/{userId}` | Public\* | Delete a seller |
+| GET | `/user-manager/api/auth/username` | Token\* | The caller's `preferred_username` (an email address — the realm is email-as-username) |
+| GET | `/user-manager/api/auth/user` | Token\* | The caller's profile: `id`, `username`, `email`, `roles`. Creates the local profile row on first call for an account user-service has not seen (just-in-time provisioning). No `jwtToken` field. |
 
-\* The gateway marks all of `/user-manager/api/auth/**` as public, so these are
-not role-checked despite the last four being admin-style operations. The
-endpoints that need an identity validate the JWT cookie internally.
+\* `/user-manager/api/auth/**` is still on the gateway's public list, so these are
+forwarded without a token check at the edge; the handler reads the caller's token
+and answers 401 without one.
+
+**Removed on 2026-09-12 (ADR-0012):** `POST /api/auth/signin`,
+`POST /api/auth/signup` and `POST /api/auth/signout` — they now answer 404.
+Signing in, registering and signing out happen on Keycloak. The four
+administrative handlers that used to live here moved to `AdminUserController`
+below, which is the fix for SEC-02.
+
+### User administration — `AdminUserController`
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| POST | `/user-manager/api/admin/users` | ADMIN | Create an account in Keycloak **and** its local profile row. Body: `email`, `firstName`, `lastName`, `role`. `role` must be `ROLE_SELLER` or `ROLE_USER` — `ROLE_ADMIN` is refused with 400 whoever asks. The response message carries a one-time temporary password that Keycloak forces the holder to change at first login. |
+| GET | `/user-manager/api/admin/users/sellers` | ADMIN | Paginated list of sellers (`pageNumber`) |
+| GET | `/user-manager/api/admin/users/customers` | ADMIN | Paginated list of customers (`pageNumber`) |
+| DELETE | `/user-manager/api/admin/users/customers/{userId}` | ADMIN | Delete a customer — the Keycloak account and the profile row |
+| DELETE | `/user-manager/api/admin/users/sellers/{userId}` | ADMIN | Delete a seller — refused if the account also holds `ROLE_ADMIN` |
+
+These paths are enforced twice: by the gateway's `/user-manager/api/admin/**`
+rule, and by user-service's own `SecurityConfig`. Promoting an administrator is
+not an API operation at all — it is done in the Keycloak admin console.
 
 ### Addresses — `AddressController`
 
@@ -60,18 +88,13 @@ endpoints that need an identity validate the JWT cookie internally.
 Update and delete do not verify ownership — any authenticated user can modify
 any address by ID.
 
-### Account self-service — `AccountController`
+### Account self-service
 
-| Method | Path | Access | Description |
-|---|---|---|---|
-| POST | `/user-manager/api/users/password/verify` | USER | Check a candidate current password against the logged-in user's stored hash, with no side effect |
-| PUT | `/user-manager/api/users/password` | USER | Change the logged-in user's password; requires the current password again and a matching confirmation, then queues a "password changed" email |
-
-Unlike `/api/auth/**`, `/api/users/**` is **not** on the gateway's public-path
-list, so a missing or expired JWT cookie is refused with a gateway-level `401`
-before the request reaches the controller — the same protection
-`GET /api/users/addresses` relies on. Available to every role (customer,
-seller, admin); there is no admin-only variant.
+**Removed on 2026-09-12 (ADR-0012).** `POST /api/users/password/verify` and
+`PUT /api/users/password` are gone with the `password` column they compared
+against. Passwords are changed in Keycloak's account console,
+`http://localhost:8090/realms/techzone/account`, which the SPA's
+"Change Password" dialog links to.
 
 ---
 

@@ -30,11 +30,15 @@ describe('System - gateway routing', { skip: stackStatus.skipReason }, () => {
   });
 
   it('routes /user-manager to user-service', async () => {
+    // /api/auth/** is still on the gateway's public list, so the request is forwarded
+    // rather than refused at the edge - which is what makes it a routing test. Since
+    // ADR-0012 there is no sign-in to post to; the profile read is what is there now, and
+    // an anonymous caller gets user-service's own answer, not the gateway's.
     const session = anonymous();
-    const response = await session.post(paths.signIn, { username: 'no-such-user', password: 'x' });
+    const response = await session.get(paths.currentUser);
 
-    assert.ok([400, 401, 404].includes(response.status),
-      `expected user-service to answer the sign-in attempt, got ${response.status}`);
+    assert.ok([401, 403, 404, 500].includes(response.status),
+      `expected user-service to answer the profile read, got ${response.status}`);
   });
 
   it('routes /order-manager to order-service', async () => {

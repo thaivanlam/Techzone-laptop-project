@@ -18,16 +18,18 @@ Related documents: [security-model.md](security-model.md) ·
 | Service | Port | Responsibility | Database |
 |---|---|---|---|
 | **Frontend** | 5173 | React SPA; in Docker, nginx also reverse-proxies API calls to the gateway | — |
-| **API Gateway** | 8080 | Routing, JWT validation, CORS, role-based filtering | — |
+| **API Gateway** | 8080 | Routing, bearer-token validation, CORS, role-based filtering | — |
+| **Keycloak** | 8090 | Identity provider (ADR-0012): sign-in, registration, credentials, token issuance. Realm `techzone` | MySQL `keycloak` |
 | **Config Server** | 8888 | Centralized configuration (native profile, classpath) | — |
 | **Discovery Service** | 8761 | Eureka service registry | — |
-| **User Service** | 8082 | Registration, login (BCrypt), JWT generation, addresses, user CRUD | MySQL `ecommerce` |
+| **User Service** | 8082 | Profiles, addresses, user administration through Keycloak's Admin API | MySQL `ecommerce` |
 | **Product Service** | 8081 | Categories, products, specifications, image upload, brand/filter queries | MySQL `ecommerce_product` |
 | **Order Service** | 8083 | Cart CRUD, order placement, Stripe payments, order status, analytics | MySQL `ecommerce_order` |
 | **Notification Service** | 8084 | Consumes RabbitMQ messages, sends transactional email via SMTP | — |
 
 Supporting infrastructure: **MySQL 8.0** (one container, one logical database
-per service) and **RabbitMQ 3** (management UI on 15672).
+per service, plus one for Keycloak), **RabbitMQ 3** (management UI on 15672) and
+**Keycloak 26** (`start-dev`, realm imported from `backend/keycloak/`).
 
 Every container, the frontend included, joins the same `ecommerce-network`
 bridge and addresses the others by service name. See
@@ -38,14 +40,14 @@ bridge and addresses the others by service name. See
 ## Request Flow
 
 ```
-Browser (:5173)
-   │
-   ▼
-API Gateway (:8080)  ──── JWT cookie validation
+Browser (:5173) ──── sign-in / registration redirect ────► Keycloak (:8090)
+   │  Authorization: Bearer <RS256 token>                          │
+   ▼                                                               │ JWKS
+API Gateway (:8080)  ──── bearer token validation ◄────────────────┘
    │                       Route rewriting (/product-manager/** → /**)
    │                       CORS + role-based access control
    │
-   ├──► User Service (:8082)          Auth, addresses, user management
+   ├──► User Service (:8082)          Profiles, addresses, user management ──► Keycloak Admin API
    ├──► Product Service (:8081)       Catalog, categories, specs, images
    └──► Order Service (:8083)         Cart, checkout, Stripe payments
            │
@@ -76,17 +78,18 @@ the gateway holds no hardcoded host addresses.
 ## Walkthrough: Placing an Order
 
 1. The React frontend sends
-   `POST /order-manager/api/order/users/payments/stripe` with the JWT cookie.
-2. The **API Gateway** `AuthenticationFilter` checks whether the path is public.
-   It is not, so the filter extracts the JWT from the `springBootEcom` cookie,
-   validates the signature against the shared HMAC secret, and reads the roles.
-   The path matches no `role-mappings` entry requiring ADMIN or SELLER, so the
-   request passes.
+   `POST /order-manager/api/order/users/payments/stripe` with
+   `Authorization: Bearer <access token>` — a token `keycloak-js` obtained from
+   Keycloak at sign-in and refreshed just before this request.
+2. The **API Gateway** security chain checks whether the path is public. It is not,
+   so it verifies the token's RS256 signature against the realm's cached public
+   keys, checks `iss` and `exp`, and reads `realm_access.roles`. The path matches
+   no `role-mappings` entry requiring ADMIN or SELLER, so the request passes.
 3. The gateway rewrites `/order-manager/**` → `/**` and forwards to
    `ORDER-SERVICE`, resolved through **Eureka**.
-4. **Order Service** receives the request. `AuthUtil` re-parses the JWT cookie to
-   extract the user's email, which is the identity key — there is no session or
-   `SecurityContext` in downstream services.
+4. **Order Service** receives the request and verifies the same token again as a
+   resource server. `AuthUtil` reads the `email` claim from the `SecurityContext` —
+   email is the identity key; there is no server-side session.
 5. The service loads the user's cart from MySQL. For each cart item it calls
    **Product Service** at `/api/internal/products/{id}` to validate stock, then
    `POST /api/internal/products/{id}/reduce-stock` to decrement inventory.
@@ -127,7 +130,11 @@ tables. Two mechanisms bridge the boundary:
 - Config Server uses the native profile, so configuration is baked in at build
   time.
 - Single Eureka instance, no peer replication.
-- JWT cookie uses `httpOnly=false`, and there is no token revocation.
+- Keycloak is a hard dependency of signing in (not of verifying an existing token).
+- Email is the identity key across a boundary the project does not own; changing it
+  in Keycloak orphans a user's data.
+- Authorization is role-based only — ownership checks are still missing (SEC-05,
+  SEC-07, SEC-08, SEC-09).
 - `getAllSellerOrders` loads all orders into memory before filtering
   (in-memory pagination).
 

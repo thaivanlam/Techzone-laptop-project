@@ -25,15 +25,17 @@ Other guides: [customer-guide.md](customer-guide.md) ·
 
 ## 1. Getting a Seller Account
 
-On the registration page, choose the **Seller** role instead of Customer. Sign
-in afterwards and you land in the management panel rather than the shop.
+Seller accounts are created by an administrator. You receive your email address
+(which is your username) and a **temporary password**. The first time you sign in,
+you are asked to choose your own password; after that you land in the management
+panel rather than the shop.
+
+Registering on the shop's own sign-up page gives you a *customer* account, not a
+seller one — that is deliberate.
 
 There is a demonstration seller account on a freshly installed system:
-`seller1`, documented with the other demo accounts in
+`seller1@example.com`, documented with the other demo accounts in
 [../operations/running-locally.md](../operations/running-locally.md#seeded-users).
-
-> Anyone can currently register as a Seller without approval. That is a known
-> weakness of this version, not a feature — see [faq.md](faq.md).
 
 ---
 
@@ -208,7 +210,7 @@ specification typo that quietly hides your listing.
 | A cancelled order left stock unchanged | Stock is not returned automatically; raise it by hand |
 | Another seller's products appear in a list | The **Products** list is correctly scoped to you. If you see otherwise, report it |
 | Your whole category emptied | An administrator deleted the category, which deletes the products inside it (`BUG-13`) |
-| The panel stops responding after a while | Your session expired (about 50 minutes). Sign in again |
+| You are sent to the sign-in page | You were idle for about 30 minutes. Sign in again — nothing you saved is lost |
 
 Two limitations worth stating plainly, both known and both recorded in the
 project's defect register: a seller can currently act on **another seller's**

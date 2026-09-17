@@ -30,7 +30,7 @@ flowchart TB
 
     subgraph edge["Edge"]
         NGINX["nginx<br/>static files + /​*-manager proxy"]
-        GW["API Gateway<br/>Spring Cloud Gateway (WebFlux)<br/>AuthenticationFilter · CORS · role rules"]
+        GW["API Gateway<br/>Spring Cloud Gateway (WebFlux)<br/>OAuth2 resource server · CORS · role rules"]
     end
 
     subgraph platform["Platform services"]
@@ -297,10 +297,12 @@ classDiagram
         <<utility>>
         +generateSKU(category, brand, name) String
     }
-    class JwtService {
-        +resolveToken(request) String
-        +isTokenValid(token) boolean
-        +extractEmail(token) String
+    class SecurityConfig {
+        <<@Configuration>>
+        +securityFilterChain(http) SecurityFilterChain
+    }
+    class KeycloakRealmRoleConverter {
+        +convert(Jwt) Collection~GrantedAuthority~
     }
     class AuthUtil {
         +loggedInEmail() String
@@ -322,7 +324,8 @@ classDiagram
     ProductServiceImpl --> ProductRepository
     ProductServiceImpl --> SKUGenerator
     ProductServiceImpl --> AuthUtil
-    AuthUtil --> JwtService
+    SecurityConfig --> KeycloakRealmRoleConverter
+    AuthUtil ..> SecurityConfig : reads the Jwt it verified
     ProductRepository --> Product
     ProductServiceImpl --> ProductDTO
     GlobalExceptionHandler ..> ProductController : advises

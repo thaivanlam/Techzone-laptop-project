@@ -170,8 +170,10 @@ origin it loaded the page from. That matters for three reasons:
 
 - **No CORS.** Same-origin requests skip preflight entirely; the gateway's
   `allowedOrigins` list stops being a failure point.
-- **First-party cookie.** The `springBootEcom` JWT cookie is set and sent on the
-  same origin, which no browser privacy setting blocks.
+- **One API origin.** The bearer token goes to the same origin the page came from.
+  (Before ADR-0012 this point was about keeping the `springBootEcom` cookie
+  first-party; there is no auth cookie now.) Keycloak is the one deliberate
+  cross-origin hop: the browser is redirected to `:8090` to sign in.
 - **The container really talks to the container.** nginx reaches the gateway
   over `ecommerce-network` by service name, so the pair works unchanged if the
   published ports move.

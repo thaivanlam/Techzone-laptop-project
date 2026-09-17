@@ -109,24 +109,26 @@ Statuses naming a `BUG-` or `SEC-` id resolve in
 
 | ID | Requirement | Priority | Status |
 |---|---|---|---|
-| **FR-AUTH-1** | A visitor can register with a username, an email and a password. Email and username are each unique across the platform. | Must | Done |
-| **FR-AUTH-2** | Passwords are stored only as BCrypt hashes; the plaintext is never persisted or logged. | Must | Done |
-| **FR-AUTH-3** | A registered user can sign in and receives a signed session token in the `springBootEcom` cookie. | Must | Done |
-| **FR-AUTH-4** | The session token carries the user's id, email and roles, and expires after a bounded lifetime. | Must | Defect — `BUG-03`: the cookie outlives the token by ~23 hours |
-| **FR-AUTH-5** | A signed-in user can sign out, after which the browser no longer holds a usable session. | Must | Defect — `SEC-13`: the token stays valid server-side until it expires |
-| **FR-AUTH-6** | A role granted at registration must be authorised — self-service signup may not confer `ROLE_ADMIN` or `ROLE_SELLER`. | Must | Open — `SEC-01`: the role is taken from the signup payload as submitted |
-| **FR-AUTH-7** | The signed-in user's identity (username, id, roles) can be read back by the client for display and routing. | Should | Done |
-| **FR-AUTH-8** | Registration triggers a welcome email. | Could | Done |
+| **FR-AUTH-1** | A visitor can register with an email and a password. Email is unique across the platform. | Must | Done — on Keycloak's registration page (ADR-0012); the email is the username |
+| **FR-AUTH-2** | Passwords are stored only as salted one-way hashes; the plaintext is never persisted or logged. | Must | Done — held by Keycloak; the platform stores no password at all |
+| **FR-AUTH-3** | A registered user can sign in and receives a signed session token. | Must | Done — an RS256 access token by Authorization Code + PKCE, sent as a bearer header |
+| **FR-AUTH-4** | The session token carries the user's identity, email and roles, and expires after a bounded lifetime. | Must | Done — 5-minute access token, refreshed while in use; `BUG-03` fixed 2026-09-12 |
+| **FR-AUTH-5** | A signed-in user can sign out, after which the browser no longer holds a usable session. | Must | Done — Keycloak end-session revokes the session; `SEC-13` fixed 2026-09-12 |
+| **FR-AUTH-6** | A role granted at registration must be authorised — self-service signup may not confer `ROLE_ADMIN` or `ROLE_SELLER`. | Must | Done — self-registration receives only the default `ROLE_USER`; `SEC-01` fixed 2026-09-12 |
+| **FR-AUTH-7** | The signed-in user's identity (username, id, roles) can be read back by the client for display and routing. | Should | Done — from token claims, and from `GET /api/auth/user` |
+| **FR-AUTH-8** | Registration triggers a welcome email. | Could | Partial — only for accounts an administrator creates; Keycloak self-registration does not notify the platform |
+| **FR-AUTH-9** | No API in the platform can grant `ROLE_ADMIN`; administrators are promoted outside the application. | Must | Done — added 2026-09-12 with ADR-0012 |
 
 ### 5.2 User Administration — `USR`
 
 | ID | Requirement | Priority | Status |
 |---|---|---|---|
-| **FR-USR-1** | An administrator can list customers, paginated. | Must | Defect — `SEC-02`: the endpoint is public |
-| **FR-USR-2** | An administrator can list sellers, paginated. | Must | Defect — `SEC-02` |
-| **FR-USR-3** | An administrator can delete a customer account. | Should | Defect — `SEC-02` |
-| **FR-USR-4** | An administrator can delete a seller account. | Should | Defect — `SEC-02` |
-| **FR-USR-5** | Only an administrator may perform FR-USR-1..4. | Must | Open — no role check exists on these paths |
+| **FR-USR-1** | An administrator can list customers, paginated. | Must | Done — `SEC-02` fixed 2026-09-12 |
+| **FR-USR-2** | An administrator can list sellers, paginated. | Must | Done |
+| **FR-USR-3** | An administrator can delete a customer account. | Should | Done — removes the Keycloak account and the profile |
+| **FR-USR-4** | An administrator can delete a seller account. | Should | Done — removes the Keycloak account and the profile |
+| **FR-USR-5** | Only an administrator may perform FR-USR-1..4 and FR-USR-6. | Must | Done — `/api/admin/users/**`, enforced at the gateway and in user-service |
+| **FR-USR-6** | An administrator can create a seller account, which starts with a temporary password. | Should | Done — added 2026-09-12 |
 
 ### 5.3 Addresses — `ADR`
 

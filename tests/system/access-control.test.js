@@ -51,11 +51,41 @@ describe('System - access control', { skip: stackStatus.skipReason }, () => {
       assert.equal(response.status, 401);
     });
 
-    it('is refused with 401 when the auth cookie holds rubbish', async () => {
-      const session = anonymous();
-      session.cookies.set('springBootEcom', 'not-a-real-token');
+    it('is refused with 401 when the bearer token holds rubbish', async () => {
+      const response = await anonymous().get(paths.myCart, {
+        headers: { Authorization: 'Bearer not-a-real-token' },
+      });
 
-      const response = await session.get(paths.myCart);
+      assert.equal(response.status, 401);
+    });
+
+    it('BUG-19: a structurally valid token signed with the wrong key is 401, not 500', async () => {
+      // The shape a forgery actually takes. The four hand-written validators omitted
+      // SignatureException from their catch lists, so this answered 500 - the gateway
+      // telling an attacker their token was well-formed. ADR-0012 closed it by deleting
+      // those validators rather than widening a catch clause.
+      const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+      const claims = Buffer.from(JSON.stringify({
+        sub: 'attacker',
+        email: 'attacker@techzone.test',
+        realm_access: { roles: ['ROLE_ADMIN'] },
+        exp: Math.floor(Date.now() / 1000) + 600,
+      })).toString('base64url');
+      const forged = `${header}.${claims}.bm90LWEtcmVhbC1zaWduYXR1cmU`;
+
+      const response = await anonymous().get(paths.adminProducts, {
+        headers: { Authorization: `Bearer ${forged}` },
+      });
+
+      assert.equal(response.status, 401, 'a forged token must be refused, not crash the gateway');
+    });
+
+    it('the springBootEcom cookie is no longer a credential', async () => {
+      // ADR-0012 supersedes ADR-0004. Presenting the old cookie is the same as presenting
+      // nothing: no component in the platform reads it any more.
+      const response = await anonymous().get(paths.myCart, {
+        headers: { Cookie: 'springBootEcom=eyJhbGciOiJIUzI1NiJ9.e30.x' },
+      });
 
       assert.equal(response.status, 401);
     });
@@ -68,8 +98,8 @@ describe('System - access control', { skip: stackStatus.skipReason }, () => {
       customer = await signInAs('customer');
     });
 
-    it('receives an auth cookie on sign-in', () => {
-      assert.ok(customer.isAuthenticated, 'sign-in should set the JWT cookie');
+    it('receives an access token on sign-in', () => {
+      assert.ok(customer.isAuthenticated, 'sign-in should hand out a bearer token');
     });
 
     it('is told who they are', async () => {
@@ -180,12 +210,15 @@ describe('System - access control', { skip: stackStatus.skipReason }, () => {
   });
 
   describe('signing out', () => {
-    it('clears the cookie and closes access again', async () => {
+    it('dropping the token closes access again', async () => {
+      // There is no POST /signout to call: sign-out is Keycloak's end-session endpoint,
+      // and revoking the session is asserted in the acceptance suite where the refresh
+      // token is in scope. What this pins is the platform's side of it - that access
+      // depends on the token being presented, and on nothing else that might linger.
       const customer = await signInAs('customer');
       assert.ok(customer.isAuthenticated);
 
-      const signOut = await customer.post(paths.signOut);
-      assert.equal(signOut.status, 200);
+      customer.reset();
 
       const afterSignOut = await customer.get(paths.myCart);
       assert.equal(afterSignOut.status, 401);

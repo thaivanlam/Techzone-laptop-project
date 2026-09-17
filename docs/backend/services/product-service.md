@@ -75,7 +75,7 @@ internal API.
    │   CategoryController      /api/...                    │
    │   ProductController       /api/...                    │
    │   ProductSpecController   /api/products/...           │
-   │   AuthUtil ← re-parses the JWT cookie                 │
+   │   SecurityConfig ← verifies the bearer token (JWKS)   │
    │   WebMvcConfig: /images/** → file:<project.image>     │
    └───────────────────────┬───────────────────────────────┘
                            ▼
@@ -112,16 +112,16 @@ com.ecommerce.product_service
 ├── model/        Category, Product, ProductSpecification
 ├── payload/      DTOs (see §5)
 ├── repositories/ Category, Product (+JpaSpecificationExecutor), ProductSpecification
-├── security/JwtService.java      # cookie → claims, incl. extractUserId
+├── security/     SecurityConfig, KeycloakRealmRoleConverter
 ├── service/      Category, Product, ProductSpecification, File, Analytics (+Impl)
 └── util/
-    ├── AuthUtil.java             # request-scoped claims cache
+    ├── AuthUtil.java             # email claim of the verified Jwt
     └── SKUGenerator.java         # CATEGORY-BRAND-MODEL-RANDOM
 ```
 
-`SwaggerConfig` declares a **bearer** security scheme while the service actually
-authenticates by cookie, so Swagger's Authorize button does not produce a working
-request.
+`SwaggerConfig` declares a **bearer** security scheme, which since ADR-0012 is how
+the service actually authenticates — paste a Keycloak access token into Swagger's
+Authorize dialog (OPS-11, closed).
 
 ---
 
@@ -296,7 +296,7 @@ still write specifications for another seller's product (`SEC-05`).
 |---|---|
 | `CategoryDTO` | `categoryId`, `categoryName` |
 | `CategoryResponse` | `content`, `pageNumber`, `pageSize`, `totalElements`, `totalPages`, `lastPage` |
-| `ProductDTO` | `productId`, `productName`, `image`, `description`, `quantity`, `price`, `discount`, `specialPrice`, `sellerId`, `sellerEmail`, `sku`, `brand` |
+| `ProductDTO` | `productId`, `productName`, `image`, `description`, `quantity`, `price`, `discount`, `specialPrice`, `sellerId`, `sellerEmail`, `sku`, `brand`. `sellerId` is null for products created since 2026-09-12 — an OIDC token carries no numeric user id; `sellerEmail` is the key everything uses |
 | `ProductResponse` | same page envelope as `CategoryResponse` |
 | `ProductSpecificationDTO` | `processor`, `ram`, `storage`, `display`, `graphics` |
 | `InventoryUpdateRequest` | `quantity` |
@@ -521,36 +521,43 @@ price filter and the cart use.
 
 ## 10. Authentication & Authorization
 
-No Spring Security. Identity comes from re-parsing the gateway-validated cookie.
+Since [ADR-0012](../../architecture/decisions/0012-keycloak-oidc-authentication.md)
+the service is an **OAuth2 resource server**. It verifies the caller's Keycloak
+RS256 token itself, against the realm's cached JWKS, rather than trusting the
+gateway — SEC-10 records that port 8081 is published, so a request need not have
+passed the gateway.
 
-### `JwtService` (`security/`)
+### `SecurityConfig` (`security/`)
 
-Identical to Order Service's, plus one method:
-
-| Method | Behaviour |
+| Path | Rule |
 |---|---|
-| `resolveToken` | First `springBootEcom` cookie with a non-blank value |
-| `isTokenValid` / `parseClaims` | HMAC verification via `Keys.hmacShaKeyFor(BASE64.decode(jwtSecret))` |
-| `extractEmail` | `claims.get("email")` |
-| `extractUserId` | `claims.get("userId")`, accepting a `Number` or a parseable string; returns null and logs a warning otherwise |
-| `extractUsername` | `claims.getSubject()` |
-| `extractRoles` | List or comma-separated string |
+| `/api/public/**`, `/images/**`, OpenAPI, Swagger, `/actuator/**` | Permitted |
+| `/api/internal/**` | **Permitted** — order-service calls it without a token. This is SEC-10, deliberately not closed by ADR-0012 |
+| `/api/admin/**` | `ROLE_ADMIN` |
+| `/api/seller/**` | `ROLE_SELLER` — an administrator passes through the realm's composite role |
+| Anything else | Authenticated |
 
-`extractUserId` exists because `addProduct` stamps `product.sellerId`.
+Stateless, CSRF off, principal name = `email` claim. Roles come from
+`realm_access.roles` through `KeycloakRealmRoleConverter`. An unverifiable token is
+a 401 from the filter chain; it never reaches a controller.
 
 ### `AuthUtil`
 
-Caches parsed claims on the request under `PRODUCT_SERVICE_JWT_CLAIMS`. Exposes
-`loggedInEmail()` and `loggedInUserId()`, each throwing `APIException` when the
-claim is absent.
+`loggedInEmail()` reads the `email` claim (falling back to `preferred_username`)
+of the `JwtAuthenticationToken` in the `SecurityContext`, and throws
+`APIException` when there is none.
 
-`extractRoles` is never called. **All role enforcement is at the gateway.**
+`loggedInUserId()` was **removed**: a Keycloak token has no numeric user id. See
+the note on `sellerId` below.
+
+`JwtService` — which read the `springBootEcom` cookie and verified an HMAC
+signature with the shared secret — was deleted, with `JwtServiceTest`.
 
 ### Where the identity is actually used
 
 | Use | Method |
 |---|---|
-| Stamp `sellerId` / `sellerEmail` on a new product | `addProduct` |
+| Stamp `sellerEmail` on a new product | `addProduct` |
 | Filter the seller's own products | `getAllProductsForSeller` |
 
 That is the complete list. In particular:
@@ -582,9 +589,8 @@ Four lines — everything else comes from Config Server.
 | Key | Value |
 |---|---|
 | `spring.jpa.hibernate.ddl-auto` | `update` |
-| `spring.app.jwtSecret` | shared HMAC secret |
-| `spring.app.jwtExpirationMs` | `3000000` |
-| `spring.ecom.app.jwtCookieName` | `springBootEcom` |
+| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `${KEYCLOAK_ISSUER_URI:http://localhost:8090/realms/techzone}` |
+| `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` | `${KEYCLOAK_JWK_SET_URI:http://localhost:8090/realms/techzone/protocol/openid-connect/certs}` |
 | `spring.servlet.multipart.max-file-size` | `50MB` |
 | `spring.servlet.multipart.max-request-size` | `50MB` |
 | `project.image` | `images/` |
@@ -667,13 +673,12 @@ rebuild.
 | `spring-cloud-starter-netflix-eureka-client` | 2025.0.0 | Registers as `PRODUCT-SERVICE` |
 | `modelmapper` | 3.2.4 | Entity ↔ DTO |
 | `springdoc-openapi-starter-webmvc-ui` | 2.8.13 | Swagger UI |
-| `jjwt-api` / `-impl` / `-jackson` | **0.12.6** | Cookie JWT parsing |
+| `spring-boot-starter-oauth2-resource-server` | 3.5.7 | Bearer token verification; brings Spring Security |
 | `mysql-connector-j` | managed | Driver |
 | `lombok` | managed | `@Data` on entities and DTOs |
 
-Note the jjwt version: **0.12.6** here versus **0.13.0** in the gateway, Order
-Service, and User Service. All four verify the same tokens, so the versions must
-stay signature-compatible; aligning them removes the risk.
+jjwt was removed on 2026-09-12, which also retires the 0.12.6 / 0.13.0 version
+skew recorded as OPS-03.
 
 ### Tests
 

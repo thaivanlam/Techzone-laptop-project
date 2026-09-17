@@ -335,7 +335,7 @@ during normal browsing and to speak up during a stress stage.
   `configprops`, no `heapdump`, so no configuration value is readable through
   it. Metric *names and shapes* — endpoints, error counts — are still visible.
 - **The gateway does not route `/actuator/**`.** Its own actuator is served
-  locally, before the routing chain, so `AuthenticationFilter` never sees it;
+  locally, and `/actuator/**` matches no gateway route;
   and no route matches `/actuator`, so the pattern is not reachable through
   the gateway for any downstream service either.
 - **Grafana allows anonymous viewers** and ships with `admin`/`admin` unless

@@ -37,17 +37,19 @@ business services are servlet-based Spring MVC.
 |---|---|
 | Route by path prefix | `spring.cloud.gateway.routes` with `RewritePath` filters |
 | Resolve service instances | `lb://SERVICE-NAME` URIs resolved through Eureka |
-| Authenticate every request | `AuthenticationFilter` (a `GlobalFilter`) validating the JWT cookie |
-| Authorize by role | `gateway.security.role-mappings` matched with `AntPathMatcher` |
-| Allow the browser origin | `globalcors` configuration with credentials enabled |
+| Authenticate every request | OAuth2 resource server: verifies the Keycloak RS256 bearer token against the realm JWKS |
+| Authorize by role | `SecurityWebFilterChain` built from `gateway.security.role-mappings` (`GatewaySecurityConfig`) |
+| Allow the browser origin | `globalcors` configuration, also applied inside the security chain |
 | Aggregate API docs | `springdoc.swagger-ui.urls` pointing at each service's `/v3/api-docs` |
 
 ### What it does **not** do
 
-- It does not issue, refresh, or revoke tokens — that is User Service's job.
-- It does not forward a decoded identity downstream. Each business service
-  re-reads and re-verifies the same cookie itself through its own `JwtService`
-  and `AuthUtil`.
+- It does not issue, refresh, or revoke tokens — that is Keycloak's job
+  (ADR-0012). It holds no signing key and cannot mint a token.
+- It does not forward a decoded identity downstream. It forwards the
+  `Authorization` header unchanged, and each business service verifies the same
+  token again as a resource server of its own.
+- It does not route to Keycloak. The browser reaches Keycloak directly on `:8090`.
 - It does not rate-limit, retry, or circuit-break.
 - It has no route to Notification Service, which is reachable only inside the
   Docker network.
@@ -57,16 +59,17 @@ business services are servlet-based Spring MVC.
 ## 2. System Context
 
 ```
-Browser (React SPA, :5173)
-        │  fetch(..., { credentials: 'include' })
-        ▼
-┌───────────────────────────────────────────────┐
-│ API Gateway  :8080                            │
-│  AuthenticationFilter (order -100)            │
-│   ├─ public path?      → forward              │
+Browser (React SPA, :5173) ───── sign-in redirect ─────► Keycloak :8090
+        │  Authorization: Bearer <RS256 token>                   │
+        ▼                                                        │ JWKS
+┌───────────────────────────────────────────────┐                │ (cached)
+│ API Gateway  :8080                            │ ◄──────────────┘
+│  SecurityWebFilterChain (GatewaySecurityConfig)│
 │   ├─ OPTIONS preflight → forward              │
-│   ├─ cookie missing/invalid → 401             │
-│   └─ role mismatch          → 403             │
+│   ├─ public path?      → forward              │
+│   ├─ no token          → 401                  │
+│   ├─ token unverifiable→ 401                  │
+│   └─ role mismatch     → 403                  │
 │  RewritePath: /{svc}-manager/x → /x           │
 └───────┬───────────────┬───────────────┬───────┘
         │ lb://         │ lb://         │ lb://
@@ -84,6 +87,7 @@ Browser (React SPA, :5173)
 |---|---|---|
 | Discovery Service (`:8761`) | Resolves `lb://` URIs | Route returns 503 until the registry cache is populated |
 | User / Product / Order Service | Downstream targets | 503 when no instance is registered |
+| Keycloak (`:8090`) | Public keys (JWKS) for token verification | Keys are fetched on first use and cached; until then, and if Keycloak is unreachable with an empty cache, protected routes answer 401. Already-cached keys keep working while Keycloak is down |
 | Config Server | **Not used.** The gateway reads only its own `application.yaml` | n/a |
 
 ---
@@ -94,19 +98,23 @@ Browser (React SPA, :5173)
 com.ecommerce.api_gateway
 ├── ApiGatewayApplication.java         # @SpringBootApplication + @EnableConfigurationProperties
 └── security/
-    ├── AuthenticationFilter.java      # GlobalFilter, order -100
-    ├── GatewaySecurityProperties.java # binds gateway.security.*
-    └── JwtService.java                # HMAC verification + roles extraction
+    ├── GatewaySecurityConfig.java       # SecurityWebFilterChain + CORS source
+    ├── GatewaySecurityProperties.java   # binds gateway.security.*
+    ├── KeycloakRealmRoleConverter.java  # realm_access.roles → authorities
+    └── JsonErrorResponses.java          # the {"error": "..."} envelope
 ```
 
 There are no controllers. Everything the gateway does is configuration plus one
-global filter.
+security filter chain.
 
 | Class | Role |
 |---|---|
-| `AuthenticationFilter` | Decides pass / 401 / 403 for every exchange |
-| `GatewaySecurityProperties` | Type-safe binding of `gateway.security.public-paths` and `gateway.security.role-mappings` |
-| `JwtService` | Parses and verifies the token, normalizes the `roles` claim |
+| `GatewaySecurityConfig` | Builds the chain from `GatewaySecurityProperties`; decides pass / 401 / 403 |
+| `GatewaySecurityProperties` | Type-safe binding of `gateway.security.public-paths` and `gateway.security.role-mappings` — still the single statement of the policy |
+| `KeycloakRealmRoleConverter` | Reads `realm_access.roles`, used verbatim as authorities (no prefix added) |
+| `JsonErrorResponses` | Entry point and access-denied handler writing the same bodies the old filter did |
+
+`AuthenticationFilter` and `JwtService` were **deleted** on 2026-09-12 (ADR-0012).
 
 ---
 
@@ -139,29 +147,35 @@ Security rules are evaluated **before** the rewrite, so every pattern under
 
 ---
 
-## 5. Authentication & Authorization Filter
+## 5. Authentication & Authorization
 
-`AuthenticationFilter` implements `GlobalFilter` and `Ordered` with
-`getOrder() == -100`, so it runs ahead of the routing filters.
+`GatewaySecurityConfig` defines a `SecurityWebFilterChain`. It is a WebFlux
+`WebFilter`, so it runs before Spring Cloud Gateway's handler mapping — ahead of
+routing and of every `GlobalFilter`.
 
 ### Decision sequence
 
 ```
-1. path matches a public-path pattern?        → chain.filter (allow)
-2. method == OPTIONS (CORS preflight)?        → chain.filter (allow)
-3. cookie "springBootEcom" missing or blank?  → 401 {"error":"Missing authentication token"}
-4. signature invalid or token expired?        → 401 {"error":"Invalid or expired token"}
-5. path matches a role-mapping pattern
-   and the token has none of its roles?       → 403 {"error":"Insufficient permissions"}
-6. otherwise                                  → chain.filter (allow)
+1. method == OPTIONS (CORS preflight)?        → permit
+2. path matches a public-path pattern?        → permit
+3. path matches a role-mapping pattern?       → hasAnyAuthority(its roles)
+4. otherwise                                  → authenticated()
+
+Authentication, for 3 and 4:
+   no Authorization: Bearer header            → 401 {"error":"Missing authentication token"}
+   signature, iss or exp does not verify      → 401 {"error":"Invalid or expired token"}
+   authenticated, role missing                → 403 {"error":"Insufficient permissions"}
 ```
 
-Matching uses `AntPathMatcher`. When a path matches several role mappings the
-required roles are **unioned**, and holding any one of them is sufficient.
+Spring Security evaluates the rules **in order and stops at the first match**. The
+filter this replaced unioned the roles of every matching mapping. The shipped
+patterns are disjoint, so no route changed — but two overlapping mappings would
+now behave differently, and the narrower one has to be listed first.
 
 ### Error shape
 
-Both failures return `application/json` with a single field:
+Every refusal returns `application/json` with a single field — byte-for-byte what
+the deleted filter produced, because the SPA and the `tests/` suites read it:
 
 ```json
 { "error": "Invalid or expired token" }
@@ -170,14 +184,19 @@ Both failures return `application/json` with a single field:
 This differs from the `APIResponse { message, status }` envelope the business
 services use, so the frontend must handle two error shapes.
 
-### Token handling — `JwtService`
+### Token verification
 
-- Key: `Keys.hmacShaKeyFor(Decoders.BASE64.decode(spring.app.jwtSecret))`.
-- Verification: `Jwts.parser().verifyWith(key).build().parseSignedClaims(token)`.
-- `MalformedJwtException`, `ExpiredJwtException`, `UnsupportedJwtException`, and
-  `IllegalArgumentException` are caught, logged at WARN, and treated as invalid.
-- `extractRoles` accepts either a JSON array **or** a comma-separated string,
-  trimming blanks. Anything else yields an empty list.
+- `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` — public keys, fetched
+  from the address the container can reach, and cached.
+- `spring.security.oauth2.resourceserver.jwt.issuer-uri` — the public issuer,
+  compared with `iss`. Setting both skips OIDC discovery at startup.
+- Any failure — bad signature, wrong issuer, expired, malformed — is a
+  `JwtException` handled by the resource server's entry point as a 401. There is no
+  hand-written catch list to get wrong: that was BUG-19, closed.
+- Principal name: the `email` claim.
+
+The `springBootEcom` cookie is not read by anything. Presenting one is the same as
+presenting nothing (`GatewayBearerTokenSecurityTest.legacyCookieIsNotACredential`).
 
 ### Public paths
 
@@ -199,13 +218,16 @@ services use, so the frontend must handle two error shapes.
 | `/order-manager/api/admin/**` | `ROLE_ADMIN` |
 | `/order-manager/api/seller/**` | `ROLE_ADMIN`, `ROLE_SELLER` |
 
-`resolveRequiredRoles` unions the roles of *every* matching pattern and passes if
-the token holds any one of them, so overlapping rules widen access rather than
-narrow it.
+The first matching pattern wins, and the caller passes if the token holds any one
+of its roles.
+
+`ROLE_ADMIN` reaches `/product-manager/api/seller/**` only because the realm's
+`ROLE_ADMIN` is a composite that includes `ROLE_SELLER`, which Keycloak expands into
+the token. Both directions are tested.
 
 Everything not listed as public and not listed here needs a **valid token but no
 particular role**. The consequences are covered in
-[../../architecture/security-model.md](../../architecture/security-model.md#enforcement-gaps-worth-knowing)
+[../../architecture/security-model.md](../../architecture/security-model.md#what-this-model-does-not-do)
 and repeated in [§10](#10-design-notes--known-trade-offs).
 
 ---
@@ -221,10 +243,15 @@ spring.cloud.gateway.globalcors.cors-configurations."[/**]":
   maxAge: 3600
 ```
 
-`allowCredentials: true` is what lets the browser attach the `springBootEcom`
-cookie to cross-origin requests, so the SPA must send `credentials: 'include'`.
-Because credentials are allowed, origins must be listed explicitly — `*` is not
-permitted by the CORS specification in this mode.
+Since ADR-0012 no cookie carries a credential; the token is an ordinary
+`Authorization` header, which `allowedHeaders: "*"` already covers, and the SPA no
+longer sets `withCredentials`. `allowCredentials: true` is kept, and because it is,
+origins must still be listed explicitly.
+
+`GatewaySecurityConfig` registers this same map as the security chain's
+`CorsConfigurationSource`. Without that, a 401 raised before routing would carry no
+CORS headers and the browser would report an opaque CORS failure instead of letting
+the SPA read the error.
 
 `FRONTEND_URL` sits alongside the two literal localhost entries; in a deployment
 where `FRONTEND_URL` is the real origin, both localhost origins remain allowed.
@@ -257,9 +284,8 @@ The gateway does **not** use Config Server. All configuration is local, in
 | Key | Default | Purpose |
 |---|---|---|
 | `server.port` | `8080` | Listen port |
-| `spring.app.jwtSecret` | hardcoded literal | HMAC key, must equal the one every service uses |
-| `spring.app.jwtExpirationMs` | `3000000` | Present but unused here — only User Service mints tokens |
-| `spring.ecom.app.jwtCookieName` | `springBootEcom` | Cookie the filter reads |
+| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `${KEYCLOAK_ISSUER_URI:http://localhost:8090/realms/techzone}` | Expected `iss`; compared, never fetched |
+| `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` | `${KEYCLOAK_JWK_SET_URI:http://localhost:8090/realms/techzone/protocol/openid-connect/certs}` | Where public keys are fetched |
 | `gateway.security.public-paths` | see [§5](#public-paths) | Paths that skip authentication |
 | `gateway.security.role-mappings` | see [§role-mappings](#role-mappings) | Path → required roles |
 | `frontend.url` | `${FRONTEND_URL:http://localhost:5173}` | Declared for reference |
@@ -273,6 +299,8 @@ The gateway does **not** use Config Server. All configuration is local, in
 | `EUREKA_CLIENT_SERVICEURL_DEFAULTZONE` | `http://localhost:8761/eureka/` | Eureka client |
 | `EUREKA_SERVER_URL` | `http://localhost:8761` | The two `eureka-*` routes |
 | `FRONTEND_URL` | `http://localhost:5173` | CORS allowed origin |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8090/realms/techzone` | Resource server |
+| `KEYCLOAK_JWK_SET_URI` | `http://localhost:8090/...` locally, `http://keycloak:8090/...` in Compose | Resource server |
 
 ---
 
@@ -283,7 +311,7 @@ The gateway does **not** use Config Server. All configuration is local, in
 Multi-stage build on `mcr.microsoft.com/openjdk/jdk:21-ubuntu`, exposing `8080`.
 
 In `backend/docker-compose.yml` the gateway sits under the `prod` profile and
-depends on `discovery-service` being healthy. The business services — and the
+depends on `discovery-service` and `keycloak` being healthy. The business services — and the
 frontend container in the root `docker-compose.yml` — declare
 `depends_on: api-gateway: condition: service_healthy`, so the gateway carries a
 healthcheck:
@@ -305,17 +333,24 @@ still returns `503`.
 | `spring-cloud-starter-gateway-server-webflux` | 2025.0.0 | Reactive gateway |
 | `spring-cloud-starter-netflix-eureka-client` | 2025.0.0 | `lb://` resolution |
 | `springdoc-openapi-starter-webflux-ui` | 2.8.17 | Aggregated Swagger UI |
-| `jjwt-api` / `jjwt-impl` / `jjwt-jackson` | 0.13.0 | JWT parsing and verification |
-| `reactor-test`, `spring-boot-starter-test` | — | Test scope |
+| `spring-boot-starter-oauth2-resource-server` | Boot 3.5.7 | Token verification against the JWKS; brings Spring Security |
+| `reactor-test`, `spring-boot-starter-test`, `spring-security-test` | — | Test scope |
 
-The gateway pins jjwt **0.13.0** while Product Service pins **0.12.6**. Both
-verify tokens issued by User Service, so the versions must stay
-signature-compatible.
+jjwt is no longer a dependency of any module (the 0.13.0 / 0.12.6 skew recorded as
+OPS-03 is moot).
 
 ### Tests
 
-`ApiGatewayApplicationTests` is a context-load smoke test only. Routing rules,
-public-path matching, and role checks are untested.
+| Class | Level | Covers |
+|---|---|---|
+| `KeycloakRealmRoleConverterTest` | unit | The `realm_access.roles` claim shape; a flat `roles` claim is ignored |
+| `GatewayBearerTokenSecurityTest` | integration | The full truth table against the real chain with a mocked decoder: public paths, SEC-10 and SEC-12 characterisations, 401 for missing / forged / expired tokens, the old cookie ignored, role mappings, composite admin roles in both directions |
+| `GatewaySecurityPolicyTest` | integration | The deployed `application.yaml` still says what the tests assume |
+| `ApiGatewayApplicationTests` | smoke | Context loads |
+
+`AuthenticationFilterTest` was deleted with the class it tested; its cases —
+including the SEC-10 characterisation and the BUG-19 one, inverted — are carried
+by `GatewayBearerTokenSecurityTest`.
 
 ---
 
@@ -323,28 +358,29 @@ public-path matching, and role checks are untested.
 
 ### 1. Identity is verified twice
 
-The gateway validates the token and then forwards the original request
-unchanged; it adds no `X-User-Email` or similar header. Every business service
-therefore parses the same cookie again through its own `AuthUtil`. This keeps
-services independently runnable in dev (bypassing the gateway) at the cost of
-duplicated verification code in three modules.
+The gateway verifies the token and forwards the original request unchanged; it adds
+no `X-User-Email` or similar header. Every business service verifies the same token
+again as a resource server. Since ADR-0012 that costs no duplicated code — it is
+Spring Security configuration in each service — and it matters, because SEC-10
+records that the service ports are published and a request may never have passed
+the gateway.
 
-### 2. The JWT secret is a literal in `application.yaml`
+### 2. Keycloak is on the sign-in path
 
-The same base64 string is repeated in the gateway's `application.yaml` and in
-Config Server's `user-service.yml`, `product-service.yml`, and
-`order-service.yml`. It is committed to the repository, so anyone with repo
-access can mint a valid admin token. See
-[../../architecture/decisions/0003-shared-hmac-jwt-secret.md](../../architecture/decisions/0003-shared-hmac-jwt-secret.md).
+Token *verification* is offline once the JWKS is cached, so an authenticated
+request does not depend on Keycloak. Obtaining a token does. The gateway itself
+will still start while Keycloak is down: setting `jwk-set-uri` avoids discovery at
+boot.
 
 ### 3. Role mappings do not cover every privileged path
 
-- `/user-manager/api/auth/**` is public, and User Service's customer/seller
-  listing and deletion endpoints live under it.
 - Role checks are path-based only. The gateway knows *which* role a caller holds,
   never *which rows* they own, so ownership guards must live in the services.
 
-Two entries used to sit here and were closed on 2026-08-25:
+Three entries used to sit here. On 2026-09-12 User Service's customer and seller
+administration moved from the public `/user-manager/api/auth/**` to
+`/user-manager/api/admin/users/**`, under the existing `ROLE_ADMIN` rule (SEC-02).
+Two were closed on 2026-08-25:
 `/product-manager/api/seller/**` now requires `ROLE_SELLER`, and
 `ProductSpecificationController` moved from `/api/products/{role}/...` to
 `/api/{role}/products/...` so the role segment lands where the patterns match.
@@ -367,8 +403,8 @@ downstream service surfaces as a hanging or 503 request with no fallback.
 ### 6. Preflight requests skip authentication by design
 
 `OPTIONS` is allowed through before the token check so the CORS preflight
-succeeds. This is correct — a preflight carries no cookie — but it means the
-filter's allow-list is effectively "public paths plus every `OPTIONS`".
+succeeds. This is correct — a preflight carries no `Authorization` header — but it
+means the chain's allow-list is effectively "public paths plus every `OPTIONS`".
 
 ---
 
@@ -378,7 +414,7 @@ filter's allow-list is effectively "public paths plus every `OPTIONS`".
 |---|---|
 | End-to-end request flow and ports | [../../architecture/system-overview.md](../../architecture/system-overview.md) |
 | JWT claims, roles, enforcement gaps | [../../architecture/security-model.md](../../architecture/security-model.md) |
-| Why WebFlux, why Eureka, why cookie JWT | [../../architecture/design-decisions.md](../../architecture/design-decisions.md) |
+| Why WebFlux, why Eureka, why Keycloak | [../../architecture/design-decisions.md](../../architecture/design-decisions.md) |
 | Every endpoint behind the gateway | [../api-reference.md](../api-reference.md) |
 | Token issuer | [user-service.md](user-service.md) |
 | Registry the `lb://` URIs resolve through | [discovery-service.md](discovery-service.md) |

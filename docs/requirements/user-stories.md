@@ -114,18 +114,17 @@ can send someone the exact list I am looking at.
 
 **As a** visitor **I want** to create an account **so that** I can buy.
 
-**Realises:** FR-AUTH-1, FR-AUTH-2, FR-AUTH-8
+**Realises:** FR-AUTH-1, FR-AUTH-2, FR-AUTH-6
 
 **Acceptance criteria**
-1. Given a username and email nobody else uses, when I submit a password, then
-   my account is created and I can sign in.
-2. Given an email that already exists, then registration is refused with a
-   message saying so.
-3. Given registration succeeded, then a welcome email is sent to that address.
+1. Given an email nobody else uses, when I submit a password on the sign-up page,
+   then my account is created and I am signed in.
+2. Given an email that already exists, then registration is refused.
+3. Given registration succeeded, then I am a customer and nothing more.
 
-**Notes.** The registration form also offers *Seller* and *Admin*, and the
-backend grants whichever is submitted (`SEC-01`). A visitor should not be able to
-grant themselves either — see FR-AUTH-6.
+**Notes.** Since ADR-0012 (2026-09-12) the sign-up page is Keycloak's and offers no
+role choice; `SEC-01` is fixed. A self-registered customer receives no welcome
+email — FR-AUTH-8 now applies only to accounts an administrator creates.
 
 ---
 
@@ -145,8 +144,10 @@ every page.
    created.
 3. Given I reload the page, then I am still signed in.
 
-**Notes.** The session lasts about 50 minutes, after which requests fail with
-`401` while the browser still looks signed in (`BUG-03`). There is no refresh.
+**Notes.** Since ADR-0012 the access token lasts five minutes and is refreshed
+silently while the shop is in use; an idle session ends after 30 minutes and the
+next request sends me to the sign-in page rather than failing (`BUG-03` fixed).
+I sign in with my email address.
 
 ### US-CUS-2 — Sign out
 

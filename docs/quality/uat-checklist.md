@@ -65,16 +65,19 @@ used. Anything that fails becomes an entry in
 
 | # | Check | Expected | Result |
 |---|---|---|---|
-| 3.1 | Register with valid details | Success message; you can then sign in | |
-| 3.2 | Register with a taken username | A readable message naming the problem — not a raw 400 body | |
-| 3.3 | Register with a taken email | Likewise | |
-| 3.4 | Register with a short password | The form refuses before submitting, or the field error is shown against the field | |
+| 3.1 | **Register** from the shop | Redirected to the Keycloak sign-up page; after submitting, back in the shop and signed in | |
+| 3.2 | The sign-up page offers no role choice | No Customer / Seller / Admin selector anywhere (SEC-01) | |
+| 3.3 | Register with a taken email | Keycloak says the email already exists | |
+| 3.4 | Register with a password shorter than 8 characters | Keycloak refuses it against the field | |
 | 3.5 | Register with a malformed email | Likewise | |
-| 3.6 | Welcome email | A message arrives at the address used (needs SMTP configured — see [running-locally.md](../operations/running-locally.md)) | |
-| 3.7 | Sign in with the wrong password | A clear failure; the form stays usable; no stack trace | |
-| 3.8 | Sign in correctly | Redirected into the shop; the header shows you are signed in | |
-| 3.9 | Reload the page | Still signed in | |
-| 3.10 | Sign out | Header returns to the signed-out state; protected pages are no longer reachable | |
+| 3.6 | The new account's roles | Profile shows a customer; `/admin` is refused | |
+| 3.7 | Sign in with the wrong password | Keycloak shows a clear failure; no stack trace anywhere | |
+| 3.8 | Sign in correctly, with the **email** | Redirected into the shop; the header shows you are signed in | |
+| 3.9 | Reload the page | Still signed in, with no flash of the signed-out header | |
+| 3.10 | Sign out | Header returns to the signed-out state; protected pages are no longer reachable; the browser's Back button does not restore the session | |
+| 3.11 | Leave the tab idle 6 minutes, then add to cart | Works — the token was refreshed silently (BUG-03) | |
+| 3.12 | Profile → Change Password | Opens Keycloak's account console, where the password can be changed | |
+| 3.13 | Browser storage | DevTools → Application: no token in Local Storage and no `springBootEcom` cookie | |
 
 ## 4. The cart
 
@@ -114,7 +117,7 @@ used. Anything that fails becomes an entry in
 
 | # | Check | Expected | Result |
 |---|---|---|---|
-| 6.1 | Sign in as `seller1` | The seller area is reachable | |
+| 6.1 | Sign in as `seller1@example.com` | The seller area is reachable | |
 | 6.2 | Product list | Shows this seller's products | |
 | 6.3 | Add a product | Appears in the list and in the public catalogue | |
 | 6.4 | SKU | Generated automatically and shown | |
@@ -130,7 +133,7 @@ used. Anything that fails becomes an entry in
 
 | # | Check | Expected | Result |
 |---|---|---|---|
-| 7.1 | Sign in as `admin` | The admin dashboard is reachable | |
+| 7.1 | Sign in as `admin@example.com` | The admin dashboard is reachable | |
 | 7.2 | Dashboard figures | Totals look plausible against the data (BUG-16: revenue includes cancelled orders) | |
 | 7.3 | Charts | Render with axes and labels; no empty canvas | |
 | 7.4 | Product list | Paginated, sortable | |
@@ -139,7 +142,10 @@ used. Anything that fails becomes an entry in
 | 7.7 | Order list | All orders, paginated | |
 | 7.8 | Change an order's status | Reflected in the customer's order history | |
 | 7.9 | Customer and seller lists | Render and paginate | |
-| 7.10 | Delete a customer | Removed; the guards refuse an account that also holds another role | |
+| 7.10 | Delete a customer | Removed; the guards refuse an account that also holds another role; the deleted customer can no longer sign in | |
+| 7.11 | Sellers → Add | Only name and email are asked; a temporary password is shown until the dialog is closed | |
+| 7.12 | Sign in as that new seller | Keycloak demands a new password first, then the seller area is reachable | |
+| 7.13 | Admin opens the seller product list | Reachable — the admin role includes the seller role | |
 
 ## 8. Presentation and accessibility
 

@@ -70,7 +70,7 @@ talks to a third-party API.
         ┌───────────────────────────────────────┐
         │ Order Service :8083                   │
         │   CartController / OrderController    │
-        │   AuthUtil ← re-parses the JWT cookie │
+        │   SecurityConfig ← verifies the token │
         └──┬──────────────┬──────────────┬──────┘
            │              │              │
    RestTemplate       RabbitMQ        Stripe API
@@ -125,9 +125,9 @@ com.ecommerce.order_service
 ├── model/                 Cart, CartItem, Order, OrderItem, Payment, ProductSnapshot
 ├── payload/               DTOs (see §5)
 ├── repositories/          Cart, CartItem, Order, OrderItem, Payment
-├── security/JwtService.java                   # cookie → claims
+├── security/              SecurityConfig, KeycloakRealmRoleConverter
 ├── service/               Cart, Order, Analytics, Stripe (+Impl), NotificationPublisher
-└── util/AuthUtil.java                         # request-scoped claims cache
+└── util/AuthUtil.java                         # email claim of the verified Jwt
 ```
 
 ### Layer responsibilities
@@ -140,9 +140,9 @@ com.ecommerce.order_service
 | `model` | JPA entities; `ProductSnapshot` is `@Embeddable`, not an entity |
 | `client` | The only place Product Service is called |
 
-`SwaggerConfig` advertises a **bearer** security scheme even though the service
-authenticates by cookie. Swagger's "Authorize" button therefore does not produce
-a working request — paste the cookie into the browser instead.
+`SwaggerConfig` advertises a **bearer** security scheme, which since ADR-0012 is how
+the service authenticates: paste a Keycloak access token into "Authorize" (OPS-11,
+closed).
 
 `WebMvcConfig` maps `/images/**` to a local `images/` directory. Order Service
 never writes images; this handler is copied from Product Service and serves
@@ -427,7 +427,7 @@ lines. The next full recompute silently corrects it.
 POST /order-manager/api/order/users/payments/{paymentMethod}
 Body: OrderRequestDTO { addressId, pgName, pgPaymentId, pgStatus, pgResponseMessage }
 
- 1. email ← AuthUtil.loggedInEmail()        (from the JWT cookie)
+ 1. email ← AuthUtil.loggedInEmail()        (email claim of the verified token)
  2. cart  ← cartRepository.findCartByEmail(email)
        null    → 404 ResourceNotFoundException
        empty   → 400 APIException("Cart is empty")
@@ -591,34 +591,35 @@ would decouple the two.
 
 ## 10. Authentication & Authorization
 
-Order Service has **no Spring Security** on the classpath. Identity comes from
-re-parsing the same cookie the gateway already validated.
+Since [ADR-0012](../../architecture/decisions/0012-keycloak-oidc-authentication.md)
+Order Service is an **OAuth2 resource server**. It verifies the caller's Keycloak
+RS256 token against the realm's cached JWKS, independently of the gateway.
 
-### `JwtService` (`security/`)
+### `SecurityConfig` (`security/`)
 
-| Method | Behaviour |
+| Path | Rule |
 |---|---|
-| `resolveToken(HttpServletRequest)` | First cookie named `springBootEcom` with a non-blank value |
-| `isTokenValid(token)` | `parseClaims` in a try/catch over the four jjwt exception types |
-| `parseClaims(token)` | HMAC verification with `Keys.hmacShaKeyFor(BASE64.decode(jwtSecret))` |
-| `extractEmail(claims)` | `claims.get("email")` |
-| `extractUsername(claims)` | `claims.getSubject()` |
-| `extractRoles(claims)` | List or comma-separated string |
+| `/api/public/**`, `/api/internal/**`, OpenAPI, Swagger, `/actuator/**` | Permitted |
+| `/api/admin/**` | `ROLE_ADMIN` |
+| `/api/seller/**` | `ROLE_ADMIN` or `ROLE_SELLER` — matching the gateway's mapping for these paths |
+| Anything else (cart, checkout, own orders) | Authenticated |
 
-Unlike Product Service's otherwise identical `JwtService`, this one has **no**
-`extractUserId` — Order Service never needs the numeric user id.
+Stateless, CSRF off, principal name = `email` claim, roles from
+`realm_access.roles`. A forged or expired token is a 401 from the filter chain.
 
 ### `AuthUtil`
 
-`loggedInEmail()` returns the `email` claim, falling back to the token subject,
-and throws `APIException("Missing authenticated user email")` if neither is
-present. Parsed claims are cached on the `HttpServletRequest` under the attribute
-`ORDER_SERVICE_JWT_CLAIMS`, so a request that resolves the caller more than once
-parses the token only once.
+`loggedInEmail()` returns the `email` claim of the `JwtAuthenticationToken` in the
+`SecurityContext`, falling back to `preferred_username`, and throws
+`APIException("Missing authenticated user email")` if neither is present. Its
+signature did not change, so none of its call sites did.
 
-`extractRoles` is never called in this service. **All role enforcement happens at
-the gateway** — nothing in Order Service checks who the caller is beyond their
-email.
+`JwtService`, which parsed the `springBootEcom` cookie with the shared HMAC secret,
+was deleted.
+
+**Roles are now checked here as well as at the gateway — ownership still is not.**
+Nothing in Order Service compares the caller to the cart or order being touched;
+SEC-07 and SEC-08 are unchanged, and `OrderServiceSecurityTest` pins SEC-07.
 
 ### Consequences
 
@@ -654,9 +655,8 @@ queue:
 | Key | Value |
 |---|---|
 | `spring.jpa.hibernate.ddl-auto` | `update` |
-| `spring.app.jwtSecret` | shared HMAC secret |
-| `spring.app.jwtExpirationMs` | `3000000` |
-| `spring.ecom.app.jwtCookieName` | `springBootEcom` |
+| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `${KEYCLOAK_ISSUER_URI:http://localhost:8090/realms/techzone}` |
+| `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` | `${KEYCLOAK_JWK_SET_URI:http://localhost:8090/realms/techzone/protocol/openid-connect/certs}` |
 | `server.port` | `8083` |
 | `stripe.secret.key` | `${STRIPE_SECRET_KEY}` — **required, no default** |
 | `springdoc.api-docs.enabled` | `true` |
@@ -735,7 +735,7 @@ receives `SPRING_PROFILES_ACTIVE`, `SPRING_CONFIG_IMPORT`, `CONFIG_SERVER_URL`,
 | `stripe-java` | 30.0.0 | `PaymentIntent`, `Customer` |
 | `modelmapper` | 3.2.4 | Entity ↔ DTO |
 | `springdoc-openapi-starter-webmvc-ui` | 2.8.13 | Swagger UI |
-| `jjwt-api` / `-impl` / `-jackson` | 0.13.0 | Cookie JWT parsing |
+| `spring-boot-starter-oauth2-resource-server` | 3.5.7 | Bearer token verification; brings Spring Security |
 | `mysql-connector-j` | managed | Driver |
 | `lombok` | managed | `@Data` on entities and DTOs |
 

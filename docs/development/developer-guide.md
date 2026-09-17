@@ -146,7 +146,7 @@ src/main/java/com/ecommerce/<service>/
 ├── repositories/   Spring Data JPA interfaces
 ├── model/          @Entity classes
 ├── payload/        DTOs in and out; never expose an entity
-├── security/       JwtService + AuthUtil (per service, no shared module)
+├── security/       SecurityConfig + KeycloakRealmRoleConverter (per service, no shared module)
 ├── config/         beans: ModelMapper, RabbitMQ, RestTemplate, AppConstants
 ├── exceptions/     APIException, ResourceNotFoundException, the @RestControllerAdvice
 └── util/           pure helpers (SKUGenerator, ImagePathUtils)
@@ -158,8 +158,9 @@ src/main/java/com/ecommerce/<service>/
 | **DTO mapping** | ModelMapper, configured in `config/`. Hand-map when the shapes genuinely differ. |
 | **Pagination** | `pageNumber`, `pageSize`, `sortBy`, `sortOrder` query params, defaults from `AppConstants` (page size 6). Responses carry `content`, `pageNumber`, `pageSize`, `totalElements`, `totalPages`, `lastPage`. |
 | **Errors** | Throw `APIException` (a business rule was broken → 400) or `ResourceNotFoundException` (→ 404). The `@RestControllerAdvice` turns them into an `APIResponse(message, status)`. Never build an error `ResponseEntity` by hand in a controller. |
-| **Identity** | `AuthUtil.loggedInEmail()` — it parses the `springBootEcom` cookie through the service's own `JwtService`. There is no `SecurityContext` downstream of the gateway. |
-| **Authorisation** | Role checks live in the **gateway's** `role-mappings`, matched on the *second* path segment. Ownership checks, where they exist, live in the service method. |
+| **Identity** | `AuthUtil.loggedInEmail()` — reads the `email` claim of the Keycloak token Spring Security already verified. Never parse a token or a header by hand. |
+| **Authorisation** | Role checks live in the **gateway's** `role-mappings` *and* in each service's `SecurityConfig` — change both together. Ownership checks, where they exist, live in the service method; Keycloak cannot do them for you. |
+| **Realm changes** | Edit `backend/keycloak/realm-techzone.json` **and** make the same change on the running realm (or re-import on a fresh volume). The import skips an existing realm, so a console-only change is lost on a fresh clone and a file-only change never reaches a running stack. |
 | **Persistence** | `ddl-auto: update`. There are no migrations; a column change is applied by Hibernate at boot. |
 | **Config** | Nothing hardcoded: values come from Config Server, overridable per profile and by environment variable. |
 
@@ -270,7 +271,7 @@ placed with that in mind: the later it runs, the less it can corrupt.
 
 | Concern | Convention |
 |---|---|
-| **HTTP** | One axios instance, [`src/api/api.js`](../../frontend/src/api/api.js), with `baseURL` from `VITE_BACK_END_URL` and `withCredentials: true`. Never call `axios` directly — the cookie will not travel. |
+| **HTTP** | One axios instance, [`src/api/api.js`](../../frontend/src/api/api.js), with `baseURL` from `VITE_BACK_END_URL` and interceptors that attach and refresh the Keycloak bearer token. Never call `axios` directly — the token will not travel. |
 | **State** | Redux Toolkit store, plain thunks in `store/action/index.js`, hand-written reducers per domain. No `createSlice`, no RTK Query — see [../frontend/design-decisions.md](../frontend/design-decisions.md). |
 | **Thunk shape** | `dispatch(IS_FETCHING)` → `await api.get(...)` → `dispatch(RESULT, payload)` → `catch → dispatch(IS_ERROR, message)`. Read the message as `error?.response?.data?.message` with a literal fallback. |
 | **Filters** | URL query params are the source of truth. A `use*Filter` hook reads `useSearchParams`, builds the backend query string, and dispatches. Never keep filter state in component state. |

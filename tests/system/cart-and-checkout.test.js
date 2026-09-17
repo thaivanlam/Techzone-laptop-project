@@ -62,7 +62,7 @@ describe('System - cart and checkout', { skip: stackStatus.skipReason }, () => {
     // Pinned as current behaviour; once getCart returns an empty cart (or a 404), rewrite
     // this to expect that. Documented as BUG-20 in docs/backend/known-defects.md.
     const { account, response: registration } = await registerFreshCustomer();
-    assert.equal(registration.status, 200, 'registration should succeed');
+    assert.equal(registration.status, 201, 'registration should succeed');
 
     const { session: fresh } = await signIn(account);
     const response = await fresh.get(paths.myCart);

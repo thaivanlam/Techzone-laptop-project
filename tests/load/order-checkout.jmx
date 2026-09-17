@@ -2,7 +2,7 @@
 <jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
   <hashTree>
     <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="TechZone — cart and checkout" enabled="true">
-      <stringProp name="TestPlan.comments">The cross-service ordering path under concurrency: register, sign in, find a product in stock, add it to the cart, read the cart, place the order, read the order history. Every thread registers its OWN account - the seeded demo accounts share one cart per user, and two threads writing the same cart corrupts it (BUG-21). This plan WRITES: accounts, carts, orders, and stock decrements. See tests/load/README.md.</stringProp>
+      <stringProp name="TestPlan.comments">The cross-service ordering path under concurrency: register, sign in, find a product in stock, add it to the cart, read the cart, place the order, read the order history. Every thread registers its OWN account - the seeded demo accounts share one cart per user, and two threads writing the same cart corrupts it (BUG-21). This plan WRITES: accounts, carts, orders, and stock decrements. Since ADR-0012 the platform issues no tokens: each thread creates its account through Keycloak's Admin API and then obtains a real RS256 access token by password grant against the techzone-tests client, which it sends as a bearer header. Access tokens live five minutes, so the plan fetches one at the start of the loop and fetches a new one a minute before it expires - the load and stress stages outlast a single token. See tests/load/README.md.</stringProp>
       <boolProp name="TestPlan.functional_mode">false</boolProp>
       <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
       <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
@@ -34,7 +34,41 @@
             <stringProp name="Argument.name">shopperPassword</stringProp>
             <stringProp name="Argument.value">${__P(shopper.password,LoadTest1)}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
-            <stringProp name="Argument.desc">Throw-away credential for accounts that exist only in a development database.</stringProp>
+            <stringProp name="Argument.desc">Throw-away credential for accounts that exist only in a development realm. Must satisfy the realm password policy, which is length(8).</stringProp>
+          </elementProp>
+          <elementProp name="keycloakBase" elementType="Argument">
+            <stringProp name="Argument.name">keycloakBase</stringProp>
+            <stringProp name="Argument.value">${__P(keycloak.base,http://localhost:8090)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">ADR-0012. Keycloak is NOT behind the gateway, so these samplers address it directly rather than through the gateway defaults below.</stringProp>
+          </elementProp>
+          <elementProp name="keycloakRealm" elementType="Argument">
+            <stringProp name="Argument.name">keycloakRealm</stringProp>
+            <stringProp name="Argument.value">${__P(keycloak.realm,techzone)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="testsClientId" elementType="Argument">
+            <stringProp name="Argument.name">testsClientId</stringProp>
+            <stringProp name="Argument.value">${__P(keycloak.tests.client,techzone-tests)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">The only client in the realm with direct access grants enabled. techzone-spa has them off, so no password ever reaches the client the application uses.</stringProp>
+          </elementProp>
+          <elementProp name="testsClientSecret" elementType="Argument">
+            <stringProp name="Argument.name">testsClientSecret</stringProp>
+            <stringProp name="Argument.value">${__P(keycloak.tests.secret,techzone-tests-dev-secret)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Development default. Override with -Jkeycloak.tests.secret for any realm that is not the committed one.</stringProp>
+          </elementProp>
+          <elementProp name="adminClientId" elementType="Argument">
+            <stringProp name="Argument.name">adminClientId</stringProp>
+            <stringProp name="Argument.value">${__P(keycloak.admin.client,techzone-admin-api)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="adminClientSecret" elementType="Argument">
+            <stringProp name="Argument.name">adminClientSecret</stringProp>
+            <stringProp name="Argument.value">${__P(keycloak.admin.secret,techzone-admin-api-dev-secret)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Needed only to create the throw-away accounts: registration is a browser flow on Keycloak's page and there is no platform endpoint that creates a customer.</stringProp>
           </elementProp>
         </collectionProp>
       </Arguments>
@@ -64,9 +98,9 @@
         </collectionProp>
       </HeaderManager>
       <hashTree/>
-      <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="Cookie jar (carries the JWT)" enabled="true">
+      <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="Cookie jar (unused since ADR-0012, kept empty)" enabled="true">
         <collectionProp name="CookieManager.cookies"/>
-        <boolProp name="CookieManager.clearEachIteration">false</boolProp>
+        <boolProp name="CookieManager.clearEachIteration">true</boolProp>
         <boolProp name="CookieManager.controlledByThreadGroup">false</boolProp>
       </CookieManager>
       <hashTree/>
@@ -84,7 +118,7 @@
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </ThreadGroup>
       <hashTree>
-        <OnceOnlyController guiclass="OnceOnlyControllerGui" testclass="OnceOnlyController" testname="Register and sign in (first iteration only)" enabled="true"/>
+        <OnceOnlyController guiclass="OnceOnlyControllerGui" testclass="OnceOnlyController" testname="Create the account (first iteration only)" enabled="true"/>
         <hashTree>
           <UserParameters guiclass="UserParametersGui" testclass="UserParameters" testname="Name this thread's throw-away account" enabled="true">
             <collectionProp name="UserParameters.names">
@@ -98,18 +132,37 @@
             <boolProp name="UserParameters.per_iteration">true</boolProp>
           </UserParameters>
           <hashTree/>
-          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="00 POST register" enabled="true">
-            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
-            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="00 POST Keycloak service-account token" enabled="true">
+            <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
               <collectionProp name="Arguments.arguments">
-                <elementProp name="" elementType="HTTPArgument">
-                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                  <stringProp name="Argument.value">{"username":"${shopper}","email":"${shopper}@techzone.test","password":"${shopperPassword}"}</stringProp>
+                <elementProp name="grant_type" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                  <stringProp name="Argument.name">grant_type</stringProp>
+                  <stringProp name="Argument.value">client_credentials</stringProp>
                   <stringProp name="Argument.metadata">=</stringProp>
+                  <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                </elementProp>
+                <elementProp name="client_id" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                  <stringProp name="Argument.name">client_id</stringProp>
+                  <stringProp name="Argument.value">${adminClientId}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                  <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                </elementProp>
+                <elementProp name="client_secret" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                  <stringProp name="Argument.name">client_secret</stringProp>
+                  <stringProp name="Argument.value">${adminClientSecret}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                  <boolProp name="HTTPArgument.use_equals">true</boolProp>
                 </elementProp>
               </collectionProp>
             </elementProp>
-            <stringProp name="HTTPSampler.path">/user-manager/api/auth/signup</stringProp>
+            <stringProp name="HTTPSampler.domain"></stringProp>
+            <stringProp name="HTTPSampler.port"></stringProp>
+            <stringProp name="HTTPSampler.protocol"></stringProp>
+            <stringProp name="HTTPSampler.path">${keycloakBase}/realms/${keycloakRealm}/protocol/openid-connect/token</stringProp>
             <stringProp name="HTTPSampler.method">POST</stringProp>
             <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
             <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
@@ -117,6 +170,21 @@
             <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
           </HTTPSamplerProxy>
           <hashTree>
+            <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Form encoding" enabled="true">
+              <collectionProp name="HeaderManager.headers">
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">Content-Type</stringProp>
+                  <stringProp name="Header.value">application/x-www-form-urlencoded</stringProp>
+                </elementProp>
+              </collectionProp>
+            </HeaderManager>
+            <hashTree/>
+            <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Extract adminToken" enabled="true">
+              <stringProp name="JSONPostProcessor.referenceNames">adminToken</stringProp>
+              <stringProp name="JSONPostProcessor.jsonPathExprs">$.access_token</stringProp>
+              <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+            </JSONPostProcessor>
+            <hashTree/>
             <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="200 OK" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="49586">200</stringProp>
@@ -124,22 +192,25 @@
               <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
               <boolProp name="Assertion.assume_success">false</boolProp>
               <intProp name="Assertion.test_type">8</intProp>
-              <stringProp name="Assertion.custom_message">Registration was refused. A 400 here usually means the generated username collided with a previous run in the same second.</stringProp>
+              <stringProp name="Assertion.custom_message">Keycloak refused the service account. Check -Jkeycloak.admin.secret against the realm.</stringProp>
             </ResponseAssertion>
             <hashTree/>
           </hashTree>
-          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="01 POST sign in" enabled="true">
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="01 POST create throw-away account" enabled="true">
             <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
             <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
               <collectionProp name="Arguments.arguments">
                 <elementProp name="" elementType="HTTPArgument">
                   <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                  <stringProp name="Argument.value">{"username":"${shopper}","password":"${shopperPassword}"}</stringProp>
+                  <stringProp name="Argument.value">{"username":"${shopper}@techzone.test","email":"${shopper}@techzone.test","enabled":true,"emailVerified":true,"credentials":[{"type":"password","value":"${shopperPassword}","temporary":false}]}</stringProp>
                   <stringProp name="Argument.metadata">=</stringProp>
                 </elementProp>
               </collectionProp>
             </elementProp>
-            <stringProp name="HTTPSampler.path">/user-manager/api/auth/signin</stringProp>
+            <stringProp name="HTTPSampler.domain"></stringProp>
+            <stringProp name="HTTPSampler.port"></stringProp>
+            <stringProp name="HTTPSampler.protocol"></stringProp>
+            <stringProp name="HTTPSampler.path">${keycloakBase}/admin/realms/${keycloakRealm}/users</stringProp>
             <stringProp name="HTTPSampler.method">POST</stringProp>
             <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
             <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
@@ -147,6 +218,124 @@
             <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
           </HTTPSamplerProxy>
           <hashTree>
+            <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Service-account bearer" enabled="true">
+              <collectionProp name="HeaderManager.headers">
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">Authorization</stringProp>
+                  <stringProp name="Header.value">Bearer ${adminToken}</stringProp>
+                </elementProp>
+              </collectionProp>
+            </HeaderManager>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="201 Created" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="49588">201</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">8</intProp>
+              <stringProp name="Assertion.custom_message">Account creation was refused. A 409 here means the generated name collided with a previous run in the same second.</stringProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+        </hashTree>
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Bearer token (ADR-0012)" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="" elementType="Header">
+              <stringProp name="Header.name">Authorization</stringProp>
+              <stringProp name="Header.value">Bearer ${accessToken}</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+        <IfController guiclass="IfControllerPanel" testclass="IfController" testname="Token missing or about to expire?" enabled="true">
+          <stringProp name="IfController.condition">${__groovy(System.currentTimeMillis() &gt;= Long.parseLong(vars.get(&quot;tokenRefreshAt&quot;) ?: &quot;0&quot;),)}</stringProp>
+          <boolProp name="IfController.evaluateAll">false</boolProp>
+          <boolProp name="IfController.useExpression">true</boolProp>
+        </IfController>
+        <hashTree>
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="0T POST access token (fetched, then refreshed before expiry)" enabled="true">
+            <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="grant_type" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                  <stringProp name="Argument.name">grant_type</stringProp>
+                  <stringProp name="Argument.value">password</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                  <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                </elementProp>
+                <elementProp name="client_id" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                  <stringProp name="Argument.name">client_id</stringProp>
+                  <stringProp name="Argument.value">${testsClientId}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                  <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                </elementProp>
+                <elementProp name="client_secret" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                  <stringProp name="Argument.name">client_secret</stringProp>
+                  <stringProp name="Argument.value">${testsClientSecret}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                  <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                </elementProp>
+                <elementProp name="username" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                  <stringProp name="Argument.name">username</stringProp>
+                  <stringProp name="Argument.value">${shopper}@techzone.test</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                  <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                </elementProp>
+                <elementProp name="password" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">true</boolProp>
+                  <stringProp name="Argument.name">password</stringProp>
+                  <stringProp name="Argument.value">${shopperPassword}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                  <boolProp name="HTTPArgument.use_equals">true</boolProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+            <stringProp name="HTTPSampler.domain"></stringProp>
+            <stringProp name="HTTPSampler.port"></stringProp>
+            <stringProp name="HTTPSampler.protocol"></stringProp>
+            <stringProp name="HTTPSampler.path">${keycloakBase}/realms/${keycloakRealm}/protocol/openid-connect/token</stringProp>
+            <stringProp name="HTTPSampler.method">POST</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+            <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          </HTTPSamplerProxy>
+          <hashTree>
+            <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Form encoding" enabled="true">
+              <collectionProp name="HeaderManager.headers">
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">Content-Type</stringProp>
+                  <stringProp name="Header.value">application/x-www-form-urlencoded</stringProp>
+                </elementProp>
+              </collectionProp>
+            </HeaderManager>
+            <hashTree/>
+            <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Extract accessToken" enabled="true">
+              <stringProp name="JSONPostProcessor.referenceNames">accessToken</stringProp>
+              <stringProp name="JSONPostProcessor.jsonPathExprs">$.access_token</stringProp>
+              <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+            </JSONPostProcessor>
+            <hashTree/>
+            <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Schedule the next refresh" enabled="true">
+              <stringProp name="scriptLanguage">groovy</stringProp>
+              <stringProp name="parameters"></stringProp>
+              <stringProp name="filename"></stringProp>
+              <stringProp name="cacheKey">true</stringProp>
+              <stringProp name="script">// Access tokens live five minutes (ADR-0012), and the load and stress stages run
+// for five and ten. Refresh a minute early so no journey sampler ever carries an
+// expired token - a 401 here would be a test artefact, not a platform result.
+if (prev.isSuccessful()) {
+    def body = new groovy.json.JsonSlurper().parseText(prev.getResponseDataAsString())
+    long ttl = (body.expires_in ?: 300) as long
+    vars.put('tokenRefreshAt', String.valueOf(System.currentTimeMillis() + Math.max(ttl - 60, 30) * 1000L))
+}</stringProp>
+            </JSR223PostProcessor>
+            <hashTree/>
             <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="200 OK" enabled="true">
               <collectionProp name="Asserion.test_strings">
                 <stringProp name="49586">200</stringProp>

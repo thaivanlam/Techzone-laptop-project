@@ -1,6 +1,6 @@
 # ADR-0003: Share one HMAC-SHA JWT secret across all services
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0012](0012-keycloak-oidc-authentication.md) (2026-09-12)
 - **Date:** 2026-08-22 (recorded retrospectively; the choice was made during backend development)
 - **Affects:** user-service, api-gateway, product-service, order-service
 

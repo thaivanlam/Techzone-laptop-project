@@ -50,42 +50,39 @@ one only to put things in a basket and buy.
 
 ## 2. Creating an Account
 
-1. Click **Login**, then **Register** (or go straight to `/register`).
-2. Fill in:
-   - **Username** — up to 20 characters, must not already be taken
-   - **Email** — must be a real format, and not already registered
-   - **Password**
-3. Choose a role. **Pick *Customer*.** The other two are for people running the
-   shop:
+1. Click **Login**, then **Register** (or go straight to `/register`). You are
+   taken to the TechZone account page.
+2. Enter your **email address** — it is also your username — your name, and a
+   **password** of at least 8 characters.
+3. Submit. You come straight back to the shop, signed in, as a customer.
 
-   | Role | What it is for |
-   |---|---|
-   | **Customer** | Buying. This is you. |
-   | **Seller** | Listing products for sale — see [seller-guide.md](seller-guide.md) |
-   | **Admin** | Running the platform — see [admin-guide.md](admin-guide.md) |
+There is no role to choose: every new account is a customer. Seller accounts are
+created by the shop's administrators — see [seller-guide.md](seller-guide.md).
 
-4. Submit. You should receive a welcome email at the address you gave.
+If registration is refused, the page says why — nearly always that the email is
+already registered, or the password is too short.
 
-If registration is refused, the message names the reason — nearly always that
-the username or the email is already in use.
-
-> There is **no "forgot password"** in this version. If you lose a password, an
-> administrator has to delete the account and you register again.
+> **Forgot your password?** Use *Forgot password?* on the sign-in page. It needs
+> the shop to have email configured; if it does not, ask an administrator.
 
 ---
 
 ## 3. Signing In and Out
 
-Sign in with your username and password. Where you land depends on your role:
+Click **Login** and sign in on the TechZone account page with your **email** and
+password. Where you land depends on your role:
 
 - **Customer** → the shop
 - **Seller** or **Admin** → the management panel
 
-Your session lasts about **50 minutes**. After that, actions start failing even
-though the page still looks signed in. If something stops working for no
-apparent reason, sign out and sign in again — that fixes it.
+You stay signed in while you use the shop; after about 30 minutes without doing
+anything you are asked to sign in again the next time you click something.
 
-To sign out, use the menu under your name in the top bar.
+To sign out, use the menu under your name in the top bar. Signing out ends your
+session everywhere, not only in this browser.
+
+To change your password, open **Profile → Change Password**; it takes you to your
+account settings.
 
 ---
 
@@ -243,11 +240,10 @@ Known behaviour in this version, so you do not think you have broken something.
 | A brand-new shop shows an error instead of an empty catalogue | The same defect, with nothing in the catalogue at all |
 | A laptop you expect is missing from a Processor / RAM / Storage filter | Products with no specifications recorded are left out of those filters (`BUG-14`) |
 | A category filter finds nothing although the category exists | The category name must match exactly, letter for letter (`BUG-15`) |
-| Everything stops working after a while | Your session expired (about 50 minutes). Sign in again |
+| You are sent to the sign-in page in the middle of shopping | You were idle for about 30 minutes. Sign in and carry on — your basket is kept |
 | No confirmation email | Email needs configuring by whoever runs the shop; the order itself is still placed |
 | Basket total looks a penny off | A rounding difference between two ways of adding up (`BUG-07`) |
-| Sign-out does not feel complete | The browser forgets you, but the session is only fully dead once it expires |
 
-There is no password reset, no wishlist, no product reviews and no returns
+There is no wishlist, no product reviews and no returns
 process. Those are outside what this version does — see
 [faq.md](faq.md).

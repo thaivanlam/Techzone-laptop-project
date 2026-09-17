@@ -74,7 +74,6 @@ erDiagram
         bigint  user_id PK
         varchar username UK
         varchar email UK
-        varchar password
     }
     ROLE {
         int     role_id PK
@@ -97,9 +96,25 @@ erDiagram
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | `user_id` | `bigint` | no | PK, `AUTO_INCREMENT` |
-| `username` | `varchar(20)` | no | unique constraint |
-| `email` | `varchar(50)` | no | unique constraint, `@Email` validated |
-| `password` | `varchar(120)` | no | BCrypt hash (60 characters); the plaintext is never stored |
+| `username` | `varchar(50)` | no | unique constraint. The `preferred_username` claim, which is an email address (realm is email-as-username). Was `varchar(20)` before 2026-09-12 |
+| `email` | `varchar(50)` | no | unique constraint, `@Email` validated. **The identity key**, matched against the token's `email` claim |
+
+Since [ADR-0012](decisions/0012-keycloak-oidc-authentication.md) this table is a
+**profile and address owner, not a credential store**. The `password` column was
+removed from the entity; credentials live in Keycloak's own `keycloak` database.
+Hibernate's `ddl-auto: update` never drops a column, so a database created before
+the migration still carries `password` with BCrypt hashes nothing reads — drop it
+by hand.
+
+Rows are created in three ways: by `UserServiceConfig` for the four demo profiles,
+by `POST /api/admin/users` together with the Keycloak account, and just in time by
+`AuthUtil.loggedInUser()` the first time an unknown email makes a request. A row
+created the third way has no `user_role` rows — the roles that are *enforced* come
+from the token; the local ones only feed the admin lists.
+
+> **Two sources of truth.** Keycloak holds the account and the enforced roles, this
+> table the profile; nothing reconciles them. Changing an email in Keycloak orphans
+> the row and everything keyed on that email in `ecommerce_order`.
 
 ### `role`
 
@@ -428,8 +443,7 @@ unique constraints on `user.username` and `user.email`; a unique constraint on
 | Time component on `order_date` | Orders within one day cannot be sequenced |
 
 Column lengths come from Bean Validation: Hibernate applies `@Size(max = …)` to
-generated DDL, which is why `user.username` is `varchar(20)` and
-`user.password` is `varchar(120)` while unannotated string columns default to
+generated DDL, which is why `user.username` and `user.email` are `varchar(50)` while unannotated string columns default to
 `varchar(255)`.
 
 ---

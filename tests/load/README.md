@@ -18,7 +18,7 @@ is the point. See
 | File | What it does |
 |---|---|
 | [`catalogue-browse.jmx`](catalogue-browse.jmx) | Anonymous browsing: paged listing, brand and category facets, keyword search, one product's specifications. Writes nothing. |
-| [`order-checkout.jmx`](order-checkout.jmx) | The ordering path: register, sign in, find stock, add to cart, read the cart, place the order, read the history. **Writes rows.** |
+| [`order-checkout.jmx`](order-checkout.jmx) | The ordering path: create an account in Keycloak, get a token, find stock, add to cart, read the cart, place the order, read the history. **Writes rows.** |
 | [`profiles.properties`](profiles.properties) | Every knob the plans read, with the defaults and the four stages documented |
 | [`data/search-keywords.csv`](data/search-keywords.csv) | Search terms the browsing plan cycles through |
 | [`run.sh`](run.sh) / [`run.ps1`](run.ps1) | Run one plan at one stage; writes samples and an HTML report under `results/` |
@@ -129,11 +129,32 @@ behind, in the development database:
 Two consequences follow.
 
 **Every thread registers its own account** rather than sharing the seeded
-`user1`. That is not politeness — the seeded accounts have one cart each, and
-two threads writing the same cart corrupts it permanently (**BUG-21**, found
-by the system suite doing exactly that). The generated username is
-`lt<threadNumber>s<epochSecond>`, inside the 20-character limit the signup DTO
-enforces.
+`user1@example.com`. That is not politeness — the seeded accounts have one cart
+each, and two threads writing the same cart corrupts it permanently (**BUG-21**,
+found by the system suite doing exactly that). The account is
+`lt<threadNumber>s<epochSecond>@techzone.test`.
+
+**Authentication since ADR-0012.** The platform has no sign-up or sign-in endpoint,
+so each thread, once, takes a service-account token (`techzone-admin-api`) and
+creates its account through Keycloak's Admin API. It then obtains an access token
+by password grant against `techzone-tests` and sends it as a bearer header. Access
+tokens live **five minutes** and the `load` and `stress` stages run for five and
+ten, so the token request sits inside the loop behind an `If` controller and fires
+again a minute before expiry — without it every journey sampler would start
+answering 401 part-way through a run, and the result would measure the test, not
+the platform.
+
+This changes what a run measures in two small ways worth stating when comparing
+against runs before 2026-09-12: the `0T POST access token` sampler appears in the
+results roughly once per thread per four minutes and should be excluded from
+journey latency, and the gateway now verifies an RS256 signature against a cached
+key where it used to verify an HMAC — a different, though not obviously larger,
+per-request cost.
+
+Keycloak coordinates and secrets are JMeter properties: `keycloak.base`,
+`keycloak.realm`, `keycloak.tests.client`, `keycloak.tests.secret`,
+`keycloak.admin.client`, `keycloak.admin.secret`. The defaults are the
+development realm's.
 
 **Stock runs out.** The seeded catalogue holds a fixed quantity per product;
 a long stress run will buy it out, after which add-to-cart answers `400` with

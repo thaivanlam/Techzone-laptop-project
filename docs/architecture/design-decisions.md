@@ -17,8 +17,9 @@ Frontend-specific decisions were never part of this file and remain in
 |---|---|
 | Why is the gateway reactive? | [ADR-0001](decisions/0001-spring-cloud-gateway-webflux.md) |
 | Why Eureka and not Kubernetes? | [ADR-0002](decisions/0002-eureka-service-discovery.md) |
-| Why does every service hold the same JWT secret? | [ADR-0003](decisions/0003-shared-hmac-jwt-secret.md) |
-| Why is the token in a readable cookie? | [ADR-0004](decisions/0004-cookie-based-jwt.md) |
+| How does authentication work, and why Keycloak? | [ADR-0012](decisions/0012-keycloak-oidc-authentication.md) — accepted and implemented 2026-09-12 |
+| Why did every service hold the same JWT secret? *(historical)* | [ADR-0003](decisions/0003-shared-hmac-jwt-secret.md) — superseded by ADR-0012 |
+| Why was the token in a readable cookie? *(historical)* | [ADR-0004](decisions/0004-cookie-based-jwt.md) — superseded by ADR-0012 |
 | Why is email sent through RabbitMQ? | [ADR-0005](decisions/0005-rabbitmq-for-notifications.md) |
 | Why does changing a config value need a rebuild? | [ADR-0006](decisions/0006-config-server-native-profile.md) |
 | Why do orders embed product data instead of referencing it? | [ADR-0007](decisions/0007-embedded-product-snapshot.md) |

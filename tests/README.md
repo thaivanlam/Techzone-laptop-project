@@ -118,8 +118,10 @@ RUN_DESTRUCTIVE=1 npm test
 ```
 
 Everything else is either read-only or cleans up after itself (cart changes are undone in
-an `after` hook). Registration scenarios do create accounts — they invent a throw-away
-username each run, and never touch the seeded ones.
+an `after` hook). Registration scenarios do create accounts — directly in the Keycloak realm, since
+registration is a browser flow on Keycloak's page — with a throw-away email each
+run, and never touch the seeded ones. Signing in is a password grant against the
+`techzone-tests` client: a real RS256 token, minus the redirect.
 
 ---
 
@@ -130,13 +132,16 @@ All of it is environment variables, read in [`lib/config.js`](lib/config.js):
 | Variable | Default | Purpose |
 |---|---|---|
 | `GATEWAY_URL` | `http://localhost:8080` | Where the platform is |
-| `AUTH_COOKIE` | `springBootEcom` | Name of the cookie carrying the JWT |
+| `KEYCLOAK_URL` | `http://localhost:8090` | Where tokens come from (ADR-0012) |
+| `KEYCLOAK_REALM` | `techzone` | |
+| `KEYCLOAK_TESTS_CLIENT_ID` / `KEYCLOAK_TESTS_CLIENT_SECRET` | `techzone-tests` / development default | Password-grant client the suites sign in with |
+| `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET` | `techzone-admin-api` / development default | Used only to create throw-away accounts in the realm |
 | `RUN_DESTRUCTIVE` | unset | `1` enables the scenarios that place orders |
 | `REQUEST_TIMEOUT_MS` | `15000` | Per-request timeout |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `adminPass` | Seeded administrator |
-| `SELLER_USERNAME` / `SELLER_PASSWORD` | `seller1` / `password2` | Seeded seller |
-| `CUSTOMER_USERNAME` / `CUSTOMER_PASSWORD` | `user1` / `password1` | Seeded customer |
-| `CUSTOMER2_USERNAME` / `CUSTOMER2_PASSWORD` | `user2` / `password1` | Second seeded customer |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin@example.com` / `adminPass` | Seeded administrator |
+| `SELLER_USERNAME` / `SELLER_PASSWORD` | `seller1@example.com` / `password2` | Seeded seller |
+| `CUSTOMER_USERNAME` / `CUSTOMER_PASSWORD` | `user1@example.com` / `password1` | Seeded customer |
+| `CUSTOMER2_USERNAME` / `CUSTOMER2_PASSWORD` | `user2@example.com` / `password1` | Second seeded customer |
 
 The defaults are the **development** demo accounts documented in
 [../docs/operations/running-locally.md](../docs/operations/running-locally.md). Never point

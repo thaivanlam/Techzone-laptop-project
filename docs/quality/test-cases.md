@@ -46,26 +46,30 @@ the defect must flip that row to ✅ in the same change set — the rule is in
 
 | ID | Verifies | Precondition → Steps | Expected | Level | Auto |
 |---|---|---|---|---|---|
-| **TC-AUTH-01** | FR-AUTH-1 | No account with this email → `POST /api/auth/signup` with a fresh username, email, password | `200`, account created, one `user_role` row for the requested role | IH, A | ✅ |
-| **TC-AUTH-02** | FR-AUTH-1 | An account already holds the username → sign up again with it | `400`, message names the username, no second row | IH | ✅ |
-| **TC-AUTH-03** | FR-AUTH-1 | An account already holds the email → sign up again with it | `400`, message names the email | IH | ✅ |
-| **TC-AUTH-04** | FR-AUTH-2 | Register, then read the row → `SELECT password FROM user` | A BCrypt hash (`$2a$…`), never the plaintext, and the plaintext appears in no log | IP | ✅ |
-| **TC-AUTH-05** | FR-AUTH-3 | A seeded account → `POST /api/auth/signin` with correct credentials | `200`, body carries id, username and roles; `Set-Cookie: springBootEcom` present | IH, S | ✅ |
-| **TC-AUTH-06** | FR-AUTH-3 | → sign in with a wrong password | `401`, no cookie set | IH, S | ✅ |
-| **TC-AUTH-07** | FR-AUTH-4 | Sign in → decode the token | Claims `sub`, `userId`, `email`, `roles`; `exp` ≈ 50 minutes ahead | U | ✅ |
-| **TC-AUTH-08** | FR-AUTH-5 | Signed in → `POST /api/auth/signout` → call a protected path with the old cookie | *Specified:* the old token is rejected. *Actual:* the cookie is cleared but the token still validates until expiry — `SEC-13` | S | ⚠️ |
-| **TC-AUTH-09** | FR-AUTH-4 | Take a token, alter one byte of its signature → call any protected path | `401`, and the validator returns false rather than throwing — `BUG-19` in product-service | U | ⚠️ |
-| **TC-AUTH-10** | FR-AUTH-4 | An expired token → any protected path | `401` | U, S | ✅ |
-| **TC-AUTH-11** | FR-AUTH-6 | → sign up with `roles: ["admin"]` | *Specified:* refused or downgraded to `ROLE_USER`. *Actual:* `ROLE_ADMIN` granted — `SEC-01` | IH, S | ⚠️ |
-| **TC-AUTH-12** | FR-AUTH-7 | Signed in → `GET /api/auth/user` | `200` with the caller's id, username and roles | IH, S | ✅ |
+| **TC-AUTH-01** | FR-AUTH-1 | No account with this email → create one in the realm | `201`; the account can obtain a token | A | ✅ |
+| **TC-AUTH-02** | — | *Retired 2026-09-12.* Usernames are emails (email-as-username), so TC-AUTH-03 covers it | — | — | — |
+| **TC-AUTH-03** | FR-AUTH-1 | An account already holds the email → create it again | `409` from the realm | A | ✅ |
+| **TC-AUTH-04** | FR-AUTH-2 | The platform's `user` table | No `password` column in the entity; credentials only in Keycloak | IP | ✅ |
+| **TC-AUTH-05** | FR-AUTH-3 | A seeded account → password grant against `techzone-tests` | `200`; an RS256 access token with `email` and `realm_access.roles`, issued by the realm | S, A | ✅ |
+| **TC-AUTH-06** | FR-AUTH-3 | → password grant with a wrong password | `401` from Keycloak; no token | A | ✅ |
+| **TC-AUTH-07** | FR-AUTH-4 | Take a token → read its roles | `realm_access.roles` holds the realm roles with composites expanded; a flat `roles` claim is ignored | U | ✅ |
+| **TC-AUTH-08** | FR-AUTH-5 | Signed in → Keycloak logout with the refresh token → refresh again | The refresh is refused (`400`) — session revoked. `SEC-13` fixed | A | ✅ |
+| **TC-AUTH-09** | FR-AUTH-4 | A structurally valid token with a bad signature → any protected path | `401`, never `500`. `BUG-19` fixed | I, S | ✅ |
+| **TC-AUTH-10** | FR-AUTH-4 | An expired token → any protected path | `401` `Invalid or expired token` | I | ✅ |
+| **TC-AUTH-11** | FR-AUTH-6 | A self-registered account → read its roles; try the admin catalogue | Only `ROLE_USER`; `403`. `SEC-01` fixed — this case used to pass `ROLE_ADMIN` | U, IH, A | ✅ |
+| **TC-AUTH-12** | FR-AUTH-7 | Signed in → `GET /api/auth/user` | `200` with the caller's id, username, email and roles, and no `jwtToken`; profile row created on first call | IH, A | ✅ |
+| **TC-AUTH-13** | FR-AUTH-9 | Admin → `POST /api/admin/users` with `role: ROLE_ADMIN` | `400`, nothing created in Keycloak | U, A | ✅ |
+| **TC-AUTH-14** | FR-AUTH-3 | Any protected path with only the old `springBootEcom` cookie | `401` — the cookie is not a credential | I, S | ✅ |
+| **TC-AUTH-15** | — | Admin token → `/product-manager/api/seller/products` | Allowed through the composite role; a `ROLE_ADMIN`-only token is `403` | I, A | ✅ |
 
 ### User administration — `TC-USR`
 
 | ID | Verifies | Precondition → Steps | Expected | Level | Auto |
 |---|---|---|---|---|---|
-| **TC-USR-01** | FR-USR-1, FR-USR-2 | Signed in as admin → `GET /api/auth/customers?pageNumber=0`, then `/sellers` | `200`, paginated, customers and sellers separated by role | S | ✅ |
-| **TC-USR-02** | FR-USR-3, FR-USR-4 | Admin, a disposable account exists → `DELETE /api/auth/customers/{id}` | `200`, the account no longer signs in | S | ❌ — destructive, gated behind `RUN_DESTRUCTIVE` |
-| **TC-USR-03** | FR-USR-5 | **Anonymous**, no cookie at all → `GET /api/auth/customers` | *Specified:* `401`. *Actual:* `200` with the full list — `SEC-02` | S | ⚠️ |
+| **TC-USR-01** | FR-USR-1, FR-USR-2 | Signed in as admin → `GET /api/admin/users/customers?pageNumber=0`, then `/sellers` | `200`, paginated, customers and sellers separated by role | IH | ✅ |
+| **TC-USR-02** | FR-USR-3, FR-USR-4 | Admin, a disposable account exists → `DELETE /api/admin/users/customers/{id}` | `200`; the Keycloak account and the profile are both gone | U | ✅ (unit); ❌ system — destructive |
+| **TC-USR-03** | FR-USR-5 | **Anonymous** → `GET /api/admin/users/sellers`; customer → same | `401`; `403`. `SEC-02` fixed | IH | ✅ |
+| **TC-USR-04** | FR-USR-6 | Admin → `POST /api/admin/users` with `role: ROLE_SELLER` | `200`; message carries a temporary password; seller cannot create accounts (`403`) | U, A | ✅ |
 
 ### Addresses — `TC-ADR`
 

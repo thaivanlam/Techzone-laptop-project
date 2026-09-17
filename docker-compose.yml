@@ -28,6 +28,12 @@ services:
         VITE_BACK_END_URL: ${VITE_BACK_END_URL-}
         VITE_FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY-}
+        # The browser is redirected to Keycloak and back, so this is the
+        # published host address, not the container name — nginx does not and
+        # must not proxy it (ADR-0012).
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://localhost:8090}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-techzone}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-techzone-spa}
     container_name: frontend
     profiles: ["prod"]
     ports:

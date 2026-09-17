@@ -33,7 +33,7 @@ a dashboard. The full specification is
 [../requirements/srs.md](../requirements/srs.md).
 
 **What can it not do?**
-No password reset, no product reviews, no wishlists, no discount codes, no
+No product reviews, no wishlists, no discount codes, no
 refunds or returns, no invoices, no multi-currency, no shipping integration or
 tracking numbers, no two-factor authentication, and no mobile app. The complete
 list is [../requirements/srs.md](../requirements/srs.md#10-out-of-scope).
@@ -45,30 +45,33 @@ English, one currency (US dollars). There is no localisation.
 
 ## Accounts and Signing In
 
-**I forgot my password.**
-There is no reset. An administrator must delete the account so you can register
-again with the same email.
+**What is my username?**
+Your email address.
 
-**Why do I get signed out after about an hour?**
-Sessions last roughly 50 minutes and there is no automatic renewal. What makes it
-confusing is that the page still *looks* signed in while requests are already
-failing — if things stop working for no reason, sign in again.
+**I forgot my password.**
+Use *Forgot password?* on the sign-in page. It needs the shop to have email
+configured; if it does not, an administrator can set a new one for you in the
+account console.
+
+**My old password stopped working.**
+If you had an account before 12 September 2026: sign-in moved to a new account
+service that day, the accounts were recreated, and old passwords were not carried
+over. Ask an administrator.
+
+**Why was I asked to sign in again?**
+You were idle for about 30 minutes. While you are using the shop your session
+renews itself.
 
 **I signed out. Am I safe on a shared computer?**
-Mostly. The browser forgets you immediately, but the session itself stays valid
-on the server until it expires (`SEC-13`). Close the browser as well.
+Yes. Signing out ends the session on the server, not only in the browser.
 
 **Which role should I choose when registering?**
-*Customer*, unless you are running the shop. *Seller* is for listing products,
-*Admin* for managing the platform.
-
-**Anyone can register as an Admin. Is that meant to happen?**
-No — it is a known defect (`SEC-01`) and one of the reasons this must not be
-exposed publicly.
+There is no choice any more — every new account is a customer. Sellers are created
+by an administrator; administrators are appointed outside the shop.
 
 **Can I change my role later?**
-No. Register a second account, or ask an administrator to delete and recreate
-yours.
+Ask an administrator. A seller account can be created for you; administrator
+rights are granted in the account console.
 
 ---
 
@@ -132,7 +135,8 @@ address instead of editing an old one.
 ## Selling
 
 **How do I become a seller?**
-Choose *Seller* when registering. There is no approval step in this version.
+Ask an administrator. They create the account and give you a temporary password,
+which you replace the first time you sign in.
 
 **My product does not show up in the filters.**
 Almost always missing specifications. Fill in processor, RAM, storage, display

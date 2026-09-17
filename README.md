@@ -34,7 +34,7 @@ built for the graduation thesis <i>“Laptop E-commerce Platform Using Microserv
 | | Capability | Where it lives |
 |:--:|---|---|
 | 🧩 | **Seven Spring services** — gateway, config, discovery, user, product, order, notification | [`backend/`](backend) |
-| 🔐 | **Cookie-based JWT auth** with three roles (Customer · Seller · Admin), enforced at the gateway | [security-model.md](docs/architecture/security-model.md) |
+| 🔐 | **Keycloak sign-in** (OIDC, PKCE, RS256) with three composite roles (Customer · Seller · Admin), verified at the gateway and in every service | [security-model.md](docs/architecture/security-model.md) |
 | 🛒 | **Catalog → cart → Stripe checkout**, with stock validated across a service boundary | [system-overview.md](docs/architecture/system-overview.md) |
 | 📬 | **Asynchronous email** over RabbitMQ — registration and order confirmation | [notification-service.md](docs/backend/services/notification-service.md) |
 | 📊 | **Admin dashboard** with Chart.js analytics, MUI DataGrid CRUD, and image upload | [frontend/overview.md](docs/frontend/overview.md) |
@@ -93,7 +93,8 @@ built for the graduation thesis <i>“Laptop E-commerce Platform Using Microserv
 ```mermaid
 flowchart TB
     B["🌐 Browser<br/>React SPA · :5173"]
-    GW["🛡 API Gateway · :8080<br/>JWT · CORS · role filter"]
+    GW["🛡 API Gateway · :8080<br/>token check · CORS · role filter"]
+    KC["🔑 Keycloak · :8090<br/>realm techzone"]
     CFG["⚙️ Config Server<br/>:8888"]
     EUR["🧭 Eureka Discovery<br/>:8761"]
     US["👤 User Service<br/>:8082"]
@@ -105,7 +106,10 @@ flowchart TB
     ST["💳 Stripe API"]
     SMTP["✉️ Gmail SMTP"]
 
-    B -->|"/user-manager/**<br/>/product-manager/**<br/>/order-manager/**"| GW
+    B -->|"sign-in · PKCE"| KC
+    B -->|"/user-manager/**<br/>/product-manager/**<br/>/order-manager/**<br/>Bearer token"| GW
+    GW -.->|JWKS| KC
+    US -->|"Admin API"| KC
     GW --> US
     GW --> PS
     GW --> OS
@@ -127,7 +131,7 @@ flowchart TB
     classDef ext fill:#059669,stroke:#047857,color:#fff
     class B,GW edge
     class US,PS,OS,NS svc
-    class CFG,EUR,MQ,DB infra
+    class CFG,EUR,MQ,DB,KC infra
     class ST,SMTP ext
 ```
 
@@ -139,10 +143,11 @@ flowchart TB
 | Service | Port | Responsibility | Database |
 |---|:--:|---|---|
 | 🌐 **Frontend** | `5173` | React SPA; in Docker, nginx also reverse-proxies API calls | — |
-| 🛡 **API Gateway** | `8080` | Routing, JWT validation, CORS, role-based filtering | — |
+| 🛡 **API Gateway** | `8080` | Routing, bearer-token validation, CORS, role-based filtering | — |
+| 🔑 **Keycloak** | `8090` | Sign-in, registration, credentials, token issuance | `keycloak` |
 | ⚙️ **Config Server** | `8888` | Centralized configuration (native profile, classpath) | — |
 | 🧭 **Discovery Service** | `8761` | Eureka service registry | — |
-| 👤 **User Service** | `8082` | Registration, BCrypt login, JWT issuance, addresses | `ecommerce` |
+| 👤 **User Service** | `8082` | Profiles, addresses, user administration via Keycloak's Admin API | `ecommerce` |
 | 💻 **Product Service** | `8081` | Categories, products, specifications, images, filters | `ecommerce_product` |
 | 🧾 **Order Service** | `8083` | Cart, order placement, Stripe payments, analytics | `ecommerce_order` |
 | 📧 **Notification Service** | `8084` | RabbitMQ consumer → transactional email over SMTP | — |
@@ -168,13 +173,14 @@ its context, the alternatives weighed, and the consequences accepted.
 |:--:|---|
 | 0001 | [Spring Cloud Gateway on WebFlux](docs/architecture/decisions/0001-spring-cloud-gateway-webflux.md) |
 | 0002 | [Eureka for service discovery](docs/architecture/decisions/0002-eureka-service-discovery.md) |
-| 0003 | [Shared HMAC JWT secret](docs/architecture/decisions/0003-shared-hmac-jwt-secret.md) |
-| 0004 | [Cookie-based JWT](docs/architecture/decisions/0004-cookie-based-jwt.md) |
+| 0003 | [Shared HMAC JWT secret](docs/architecture/decisions/0003-shared-hmac-jwt-secret.md) — *superseded by 0012* |
+| 0004 | [Cookie-based JWT](docs/architecture/decisions/0004-cookie-based-jwt.md) — *superseded by 0012* |
 | 0005 | [RabbitMQ for notifications](docs/architecture/decisions/0005-rabbitmq-for-notifications.md) |
 | 0006 | [Config Server native profile](docs/architecture/decisions/0006-config-server-native-profile.md) |
 | 0007 | [Embedded product snapshot](docs/architecture/decisions/0007-embedded-product-snapshot.md) |
 | 0008 | [Single MySQL, multiple databases](docs/architecture/decisions/0008-single-mysql-multiple-databases.md) |
 | 0009 | [RestTemplate for service calls](docs/architecture/decisions/0009-resttemplate-for-service-calls.md) |
+| 0012 | [Keycloak and OIDC access tokens](docs/architecture/decisions/0012-keycloak-oidc-authentication.md) |
 
 </details>
 
@@ -289,6 +295,8 @@ for the frontend and, through `include`, for every backend service.
 | `VITE_BACK_END_URL` | *(empty)* | Empty ⇒ same origin ⇒ nginx proxies to the gateway. **Build time** |
 | `API_GATEWAY_URL` | `http://api-gateway:8080` | Where the frontend container forwards proxied calls. **Run time** |
 | `MYSQL_PORT` | `3306` | Raise it (for example `3307`) when a native MySQL already holds 3306 |
+| `KEYCLOAK_ADMIN_PASSWORD` · `KEYCLOAK_*_CLIENT_SECRET` | dev defaults | 🔑 Keycloak console password and client secrets — override before anyone else can reach the stack |
+| `VITE_KEYCLOAK_URL` | `http://localhost:8090` | Where the browser signs in. **Build time** |
 
 The two profile variables must agree: `COMPOSE_PROFILES=prod` with
 `SPRING_PROFILES_ACTIVE=dev` starts containers that look for `localhost` inside
@@ -311,6 +319,7 @@ repository.
 |---|---|
 | 🛍 Storefront | <http://localhost:5173> |
 | 🛡 API Gateway | <http://localhost:8080> |
+| 🔑 Keycloak account · admin console | <http://localhost:8090/realms/techzone/account> · <http://localhost:8090/admin> |
 | 🧭 Eureka dashboard | <http://localhost:8761> |
 | 🐇 RabbitMQ management | <http://localhost:15672> |
 | ⚙️ Config Server | <http://localhost:8888> |
@@ -318,13 +327,13 @@ repository.
 | 🔥 Prometheus *(`observability` profile)* | <http://localhost:9090> |
 | 📘 Swagger UI *(dev profile only)* | <http://localhost:8080/user-manager/swagger-ui.html> |
 
-Demo accounts, created on first startup by each service's `CommandLineRunner`:
+Demo accounts, imported into Keycloak on first startup — sign in with the email:
 
-| Username | Email | Roles |
-|---|---|---|
-| `admin` | admin@example.com | 👑 ADMIN + SELLER + USER |
-| `seller1` | seller1@example.com | 🏪 SELLER |
-| `user1` · `user2` | user1@example.com · user2@example.com | 🛒 USER |
+| Sign in as | Roles |
+|---|---|
+| `admin@example.com` | 👑 ADMIN + SELLER + USER |
+| `seller1@example.com` | 🏪 SELLER + USER |
+| `user1@example.com` · `user2@example.com` | 🛒 USER |
 
 Their passwords are listed in
 [docs/operations/running-locally.md](docs/operations/running-locally.md#seeded-users).
@@ -367,7 +376,7 @@ full set and records the rules that keep it in step with the code.
 | 🧭 | Area | Document |
 |:--:|---|---|
 | 🏗 | Services, ports, end-to-end request flow | [architecture/system-overview.md](docs/architecture/system-overview.md) |
-| 🔐 | JWT issuance, cookie auth, role enforcement | [architecture/security-model.md](docs/architecture/security-model.md) |
+| 🔐 | Keycloak, token verification, role enforcement | [architecture/security-model.md](docs/architecture/security-model.md) |
 | 🧠 | Platform decisions and trade-offs | [architecture/decisions/](docs/architecture/decisions/) |
 | ⚙️ | Backend modules and conventions | [backend/overview.md](docs/backend/overview.md) |
 | 🔌 | Every gateway-exposed endpoint | [backend/api-reference.md](docs/backend/api-reference.md) |

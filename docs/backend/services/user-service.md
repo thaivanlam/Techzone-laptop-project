@@ -35,15 +35,23 @@ This document describes the full architecture of the **User Service** microservi
 
 ### Responsibilities
 
-The User Service is the **identity and profile** microservice. It handles:
+The User Service is the **profile and user-administration** microservice. Since
+[ADR-0012](../../architecture/decisions/0012-keycloak-oidc-authentication.md)
+(2026-09-12) it is **not** the identity provider: Keycloak authenticates users,
+stores their credentials and issues their tokens. This service handles:
 
-- **Authentication** — user registration, login, logout
-- **JWT issuance** — creates HS256 tokens stored in an HTTP cookie
-- **User management** — paginated listing and deletion of customers/sellers
+- **Profile** — the local `user` row keyed on email, created just in time from the
+  caller's token, which owns their addresses and the role rows the dashboard lists
+- **User administration** — creating sellers through Keycloak's Admin API,
+  listing and deleting customers and sellers (`ROLE_ADMIN` only)
 - **Address management** — CRUD for shipping addresses linked to users
-- **Event publishing** — sends welcome email messages to RabbitMQ on registration
+- **Event publishing** — a welcome email to RabbitMQ when an administrator
+  creates an account
 
-The service does **not** make direct HTTP calls to other microservices. Downstream services (order-service, product-service) validate the same JWT independently using a shared secret.
+It issues no tokens, verifies no passwords and stores none. Like every other
+service it is an OIDC resource server: it validates the caller's RS256 access
+token against the realm's public keys. Its one outbound HTTP dependency is
+Keycloak's Admin API, reached with the `techzone-admin-api` service account.
 
 ---
 
@@ -54,6 +62,8 @@ flowchart TB
     Client[Frontend_Client] --> Gateway[API_Gateway_8080]
     Gateway -->|"lb://USER-SERVICE"| UserService[User_Service_8082]
     UserService --> MySQL[(MySQL_user_db)]
+    UserService -->|"JWKS, Admin API"| Keycloak[Keycloak_8090]
+    Client -->|"sign-in, registration"| Keycloak
     UserService -->|"registration email"| RabbitMQ[RabbitMQ]
     RabbitMQ --> NotificationService[Notification_Service]
     UserService --> Eureka[Eureka_8761]
@@ -65,11 +75,12 @@ flowchart TB
 
 | Dependency | Purpose | Required at startup |
 |------------|---------|---------------------|
-| **API Gateway** (`:8080`) | Single entry point; JWT validation for protected routes | No (service runs standalone) |
-| **Config Server** (`:8888`) | Externalized configuration (JWT, DB, Eureka) | Optional (`optional:configserver:`) |
+| **Keycloak** (`:8090`) | Public keys for token validation; Admin API for creating and deleting accounts | No — keys are fetched on first use, and only `/api/admin/users` needs the Admin API |
+| **API Gateway** (`:8080`) | Single entry point; validates the token and applies role mappings first | No (service runs standalone) |
+| **Config Server** (`:8888`) | Externalized configuration (issuer, Admin API, DB, Eureka) | Optional (`optional:configserver:`) |
 | **Eureka** (`:8761`) | Service discovery; gateway resolves `lb://USER-SERVICE` | Yes (dev/prod profiles) |
 | **MySQL** | Persistent storage for users, roles, addresses | Yes |
-| **RabbitMQ** | Async welcome email on signup | Yes (signup succeeds without it, but email fails silently) |
+| **RabbitMQ** | Async welcome email when an administrator creates an account | Yes (creation succeeds without it, but the email fails silently) |
 | **Notification Service** | Consumes RabbitMQ messages and sends email | No (producer-only from user-service) |
 
 ---
@@ -82,9 +93,9 @@ flowchart TB
 user-service/src/main/java/com/ecommerce/user_service/
 ├── UserServiceApplication.java       # Spring Boot entry point
 ├── controller/                       # REST layer
-│   ├── AuthController.java
-│   ├── AddressController.java
-│   └── AccountController.java        # self-service password verify/change
+│   ├── AuthController.java           # the caller's own profile
+│   ├── AdminUserController.java      # /api/admin/users — create, list, delete
+│   └── AddressController.java
 ├── service/                          # Business logic
 │   ├── AuthService.java / AuthServiceImpl.java
 │   ├── AddressService.java / AddressServiceImpl.java
@@ -100,30 +111,30 @@ user-service/src/main/java/com/ecommerce/user_service/
 │   └── AppRole.java
 ├── payload/                          # DTOs and wrappers
 ├── security/
-│   ├── SecurityConfig.java
-│   ├── jwt/JwtUtils.java
-│   ├── request/                      # LoginRequest, SignupRequest
+│   ├── SecurityConfig.java           # resource-server filter chain
+│   ├── KeycloakRealmRoleConverter.java  # realm_access.roles → authorities
+│   ├── KeycloakAdminClient.java      # Admin API over RestClient
 │   └── response/                     # UserInfoResponse, MessageResponse
 ├── config/                           # Spring beans
-│   ├── UserServiceConfig.java        # PasswordEncoder + seed data
+│   ├── UserServiceConfig.java        # role rows + demo profile rows (no passwords)
 │   ├── AppConfig.java                # ModelMapper
 │   ├── RabbitMQConfig.java
 │   ├── SwaggerConfig.java
 │   ├── WebMvcConfig.java
 │   └── AppConstants.java
 ├── exceptions/                       # Custom exceptions + global handler
-└── util/AuthUtil.java                # Cookie-based JWT → current user
+└── util/AuthUtil.java                # verified Jwt → current user, provisioned on first sight
 ```
 
 ### Layer Responsibilities
 
 | Layer | Key classes | Responsibility |
 |-------|-------------|----------------|
-| **Controller** | `AuthController`, `AddressController`, `AccountController` | HTTP mapping, validation, response shaping |
-| **Service** | `AuthServiceImpl`, `AddressServiceImpl`, `NotificationProducer` | Business rules, JWT/cookie handling, messaging |
+| **Controller** | `AuthController`, `AdminUserController`, `AddressController` | HTTP mapping, validation, response shaping |
+| **Service** | `AuthServiceImpl`, `AddressServiceImpl`, `NotificationProducer` | Profile reads, the role allow-list, account creation and deletion, messaging |
 | **Repository** | `UserRepository`, `AddressRepository`, `RoleRepository` | Database access via Spring Data JPA |
 | **Domain** | `User`, `Address`, `Role`, `AppRole` | JPA entities and role enum |
-| **Security** | `JwtUtils`, `SecurityConfig`, `AuthUtil` | Token creation/validation; manual auth (no JWT filter) |
+| **Security** | `SecurityConfig`, `KeycloakRealmRoleConverter`, `KeycloakAdminClient`, `AuthUtil` | Token validation by Spring Security; reading the caller; talking to Keycloak |
 | **Config** | `UserServiceConfig`, `RabbitMQConfig`, etc. | Beans, startup seeding, OpenAPI, messaging |
 | **Cross-cutting** | `MyGlobalExceptionHandler` | Centralized error responses |
 
@@ -138,13 +149,14 @@ sequenceDiagram
     participant AddressService
     participant DB as MySQL
 
-    Client->>Gateway: POST /user-manager/api/addresses + cookie
-    Gateway->>Gateway: Validate JWT cookie
-    Gateway->>AddressController: POST /api/addresses
+    Client->>Gateway: POST /user-manager/api/addresses + Bearer token
+    Gateway->>Gateway: Verify RS256 signature, iss, exp
+    Gateway->>AddressController: POST /api/addresses (header forwarded)
+    AddressController->>AddressController: Resource server verifies the token again
     AddressController->>AddressService: createAddress(dto)
     AddressService->>AuthUtil: loggedInUser()
-    AuthUtil->>AuthUtil: Read JWT from springBootEcom cookie
-    AuthUtil->>DB: Load user by username from token
+    AuthUtil->>AuthUtil: Read email from the Jwt in the SecurityContext
+    AuthUtil->>DB: findByEmail — insert a profile row if absent
     AddressService->>AddressService: Duplicate address check
     AddressService->>DB: Save address with user FK
     AddressService-->>Client: AddressDTO 201
@@ -165,7 +177,6 @@ erDiagram
         bigint user_id PK
         varchar username UK
         varchar email UK
-        varchar password
     }
 
     ROLE {
@@ -197,9 +208,14 @@ erDiagram
 | Column | Type | Constraints |
 |--------|------|-------------|
 | `user_id` | BIGINT | Primary key, auto-increment |
-| `username` | VARCHAR(20) | Not blank, unique |
-| `email` | VARCHAR(50) | Not blank, unique, valid email |
-| `password` | VARCHAR(120) | Not blank, BCrypt-encoded |
+| `username` | VARCHAR(50) | Not blank, unique. The `preferred_username` claim — an email address, since the realm is email-as-username. Widened from 20 on 2026-09-12 |
+| `email` | VARCHAR(50) | Not blank, unique, valid email. **The identity key** — matched against the token's `email` claim |
+
+The `password` column was **removed** on 2026-09-12 (ADR-0012). Credentials live in
+Keycloak. Hibernate's `ddl-auto: update` does not drop columns, so a database
+created before the migration still has a `password` column full of BCrypt hashes
+that nothing reads. It is safe — and advisable — to drop it by hand:
+`ALTER TABLE ecommerce.user DROP COLUMN password;`
 
 #### `role`
 
@@ -239,38 +255,65 @@ JPA schema management: `spring.jpa.hibernate.ddl-auto: update` (from config-serv
 
 All endpoints are accessed through the API Gateway at `:8080` with the `/user-manager` prefix. Internal service paths omit the prefix.
 
-### Authentication — `AuthController`
+### Profile — `AuthController`
 
 Base path: `/api/auth` → Gateway: `/user-manager/api/auth`
 
 | Method | Gateway path | Service path | Auth | Description |
 |--------|--------------|--------------|------|-------------|
-| `POST` | `/user-manager/api/auth/signin` | `/api/auth/signin` | Public | Log in; returns `UserInfoResponse` and sets JWT cookie |
-| `POST` | `/user-manager/api/auth/signup` | `/api/auth/signup` | Public | Register; sends welcome email via RabbitMQ |
-| `GET` | `/user-manager/api/auth/username` | `/api/auth/username` | Cookie* | Returns current username from JWT |
-| `GET` | `/user-manager/api/auth/user` | `/api/auth/user` | Cookie* | Returns current user id, username, roles |
-| `POST` | `/user-manager/api/auth/signout` | `/api/auth/signout` | Cookie* | Clears JWT cookie |
-| `GET` | `/user-manager/api/auth/sellers` | `/api/auth/sellers` | Public† | Paginated seller list (`pageNumber`, default 0) |
-| `GET` | `/user-manager/api/auth/customers` | `/api/auth/customers` | Public† | Paginated customer list |
-| `DELETE` | `/user-manager/api/auth/customers/{userId}` | `/api/auth/customers/{userId}` | Public† | Delete customer (ROLE_USER only) |
-| `DELETE` | `/user-manager/api/auth/sellers/{userId}` | `/api/auth/sellers/{userId}` | Public† | Delete seller (not if also admin) |
+| `GET` | `/user-manager/api/auth/username` | `/api/auth/username` | Token* | The caller's `preferred_username` |
+| `GET` | `/user-manager/api/auth/user` | `/api/auth/user` | Token* | The caller's `id`, `username`, `email`, `roles` — provisions the profile row if absent |
 
-\* Gateway marks `/user-manager/api/auth/**` as public; these endpoints validate the JWT cookie internally when called.
+\* `/user-manager/api/auth/**` is still public at the gateway and permitted in
+`SecurityConfig`; the handler reads the caller's token through `AuthUtil` and
+answers 401 when there is none.
 
-† Admin-style operations with no gateway role enforcement.
+`POST /signin`, `/signup` and `/signout` were removed on 2026-09-12 and answer
+404 — sign-in, registration and sign-out are Keycloak's.
 
-#### Request / Response DTOs — Auth
+### User administration — `AdminUserController`
+
+Base path: `/api/admin/users` → Gateway: `/user-manager/api/admin/users`.
+**`ROLE_ADMIN` required**, at the gateway and again in `SecurityConfig`. This move
+out from under the public `/api/auth/**` prefix is the fix for SEC-02.
+
+| Method | Gateway path | Description |
+|--------|--------------|-------------|
+| `POST` | `/user-manager/api/admin/users` | Create an account in Keycloak and its profile row |
+| `GET` | `/user-manager/api/admin/users/sellers` | Paginated seller list (`pageNumber`, default 0) |
+| `GET` | `/user-manager/api/admin/users/customers` | Paginated customer list |
+| `DELETE` | `/user-manager/api/admin/users/customers/{userId}` | Delete a customer (ROLE_USER only) from Keycloak and MySQL |
+| `DELETE` | `/user-manager/api/admin/users/sellers/{userId}` | Delete a seller (refused if also admin) from Keycloak and MySQL |
+
+#### Request / Response DTOs
 
 | DTO | Package | Fields |
 |-----|---------|--------|
-| `LoginRequest` | `security.request` | `username`, `password` (both `@NotBlank`) |
-| `SignupRequest` | `security.request` | `username` (3–20), `email`, `password` (6–40), optional `roles` set |
-| `UserInfoResponse` | `security.response` | `id`, `jwtToken`, `username`, `email`, `roles` |
+| `CreateUserRequest` | `payload` | `email` (`@Email`, ≤50), `firstName`, `lastName`, `role` (`@NotBlank`). **No password, no role set** |
+| `UserInfoResponse` | `security.response` | `id`, `username`, `email`, `roles` — the `jwtToken` field is gone |
 | `MessageResponse` | `security.response` | `message` |
-| `UserDTO` | `payload` | `userId`, `username`, `email`, `password`, `roles` |
+| `UserDTO` | `payload` | `userId`, `username`, `email`, `roles` — the `password` field is gone; the admin lists used to return every account's hash |
 | `UserResponse` | `payload` | Paginated: `content`, `pageNumber`, `pageSize`, `totalElements`, `totalPages`, `lastPage` |
 
 Pagination defaults (from `AppConstants`): page `0`, size `5`, sort by `userId` descending.
+
+#### Business Rules — Account creation
+
+- **Role allow-list.** `role` is trimmed, upper-cased and checked against
+  `{ROLE_SELLER, ROLE_USER}`. Anything else — `ROLE_ADMIN` included, even from an
+  administrator — is `APIException` → 400, before Keycloak is called. No endpoint
+  in the platform can grant `ROLE_ADMIN`; promotion is a console operation.
+- **Email** is trimmed and lower-cased; an existing profile with that email is
+  refused before Keycloak is called.
+- **Keycloak first, then MySQL.** `KeycloakAdminClient.createUser` creates the
+  account with a random 16-character password marked `temporary`, then
+  `assignRealmRole` grants the role, then the profile row is saved with the same
+  role. A seller created here therefore exists locally before their first sign-in.
+- **The temporary password is returned in the response message, once.** It is not
+  emailed: BUG-06 means a failed send is swallowed.
+- **Not atomic across the two stores.** If Keycloak succeeds and the MySQL save
+  fails, the account exists without a profile; just-in-time provisioning creates
+  one at first sign-in, without the role row.
 
 ### Addresses — `AddressController`
 
@@ -278,12 +321,12 @@ Base path: `/api` → Gateway: `/user-manager/api`
 
 | Method | Gateway path | Service path | Auth | Description |
 |--------|--------------|--------------|------|-------------|
-| `POST` | `/user-manager/api/addresses` | `/api/addresses` | Cookie | Create address for logged-in user (201) |
-| `GET` | `/user-manager/api/addresses` | `/api/addresses` | Cookie | List all addresses in database |
-| `GET` | `/user-manager/api/addresses/{addressId}` | `/api/addresses/{addressId}` | Cookie | Get address by ID |
-| `GET` | `/user-manager/api/users/addresses` | `/api/users/addresses` | Cookie | Addresses of logged-in user only |
-| `PUT` | `/user-manager/api/addresses/{addressId}` | `/api/addresses/{addressId}` | Cookie | Update address fields |
-| `DELETE` | `/user-manager/api/addresses/{addressId}` | `/api/addresses/{addressId}` | Cookie | Delete address; returns deleted DTO |
+| `POST` | `/user-manager/api/addresses` | `/api/addresses` | Token | Create address for logged-in user (201) |
+| `GET` | `/user-manager/api/addresses` | `/api/addresses` | Token | List all addresses in database |
+| `GET` | `/user-manager/api/addresses/{addressId}` | `/api/addresses/{addressId}` | Token | Get address by ID |
+| `GET` | `/user-manager/api/users/addresses` | `/api/users/addresses` | Token | Addresses of logged-in user only |
+| `PUT` | `/user-manager/api/addresses/{addressId}` | `/api/addresses/{addressId}` | Token | Update address fields |
+| `DELETE` | `/user-manager/api/addresses/{addressId}` | `/api/addresses/{addressId}` | Token | Delete address; returns deleted DTO |
 
 #### Request / Response DTOs — Address
 
@@ -293,157 +336,78 @@ Base path: `/api` → Gateway: `/user-manager/api`
 
 #### Business Rules — Address
 
-- **Create**: Requires valid JWT cookie; rejects duplicate addresses (same street, building, city, state, pincode for the user)
+- **Create**: Requires a valid token; rejects duplicate addresses (same street, building, city, state, pincode for the user)
 - **Get user addresses**: Returns empty list if user has none (no error)
 - **Get all addresses**: Throws `APIException` if database is empty
 - **Update / Delete**: No ownership verification — any authenticated user can modify any address by ID
 
-### Account self-service — `AccountController`
+### Account self-service
 
-Base path: `/api/users` → Gateway: `/user-manager/api/users`
-
-| Method | Gateway path | Service path | Auth | Description |
-|--------|--------------|--------------|------|-------------|
-| `POST` | `/user-manager/api/users/password/verify` | `/api/users/password/verify` | Cookie | Check a candidate current password against the logged-in user's stored hash |
-| `PUT` | `/user-manager/api/users/password` | `/api/users/password` | Cookie | Change the logged-in user's password |
-
-Deliberately placed under `/api/users` rather than `/api/auth`: the gateway
-marks all of `/user-manager/api/auth/**` public (see
-[§6](#gateway-public-paths-relevant-to-user-service)), so a password endpoint
-living there would reach `AuthUtil.loggedInUser()` with no JWT cookie at all
-and fail as an unhandled `500`. `/api/users/**` is not on the public-path
-list, so the gateway itself refuses a missing or expired cookie with a clean
-`401` before the controller runs — the same protection
-`GET /api/users/addresses` already relies on.
-
-#### Request / Response DTOs — Account
-
-| DTO | Package | Fields |
-|-----|---------|--------|
-| `VerifyPasswordRequest` | `security.request` | `currentPassword` (`@NotBlank`) |
-| `ChangePasswordRequest` | `security.request` | `currentPassword` (`@NotBlank`), `newPassword` (`@NotBlank`, 6–40 chars), `confirmPassword` (`@NotBlank`) |
-
-Both endpoints return the existing `MessageResponse` on success.
-
-#### Business Rules — Account
-
-- **Verify**: Resolves the caller via `AuthUtil.loggedInUser()` and compares
-  `currentPassword` against the stored BCrypt hash with `PasswordEncoder.matches`.
-  No side effect — it only tells the caller whether the value they typed is
-  correct, which is what lets the frontend show a "Verified" state before
-  asking for a new password.
-- **Change**: Re-verifies `currentPassword` independently of any earlier
-  verify call (the two endpoints do not share state), rejects a
-  `newPassword`/`confirmPassword` mismatch and a `newPassword` identical to
-  the current one — all as `APIException` → `400`. On success it hashes and
-  saves the new password, then calls
-  `NotificationProducer.sendPasswordChangedEmail(email, username)` to queue a
-  transactional email, exactly like the registration welcome email
-  ([§7](#7-async-integration--rabbitmq)).
-- Available to every role — customer, seller, admin — with identical
-  behaviour; there is no admin-only variant.
+**Removed on 2026-09-12.** `AccountController`, `POST /api/users/password/verify`,
+`PUT /api/users/password`, their request DTOs and
+`NotificationProducer.sendPasswordChangedEmail` are gone with the `password`
+column. Passwords are changed in Keycloak's account console, which also applies
+the realm's password policy and brute-force protection.
 
 ---
 
 ## 6. Authentication & Authorization
 
-### JWT Model
+The platform-wide model is in
+[security-model.md](../../architecture/security-model.md). What is specific to
+this service:
 
-The User Service is the **token issuer** for the entire platform. All services share the same HMAC-SHA secret (`spring.app.jwtSecret`).
+### Resource server
 
-| Property | Value | Source |
-|----------|-------|--------|
-| Algorithm | HS256 (HMAC-SHA) | `JwtUtils` |
-| Cookie name | `springBootEcom` | `spring.ecom.app.jwtCookieName` |
-| Token expiration | 3,000,000 ms (~50 min) | `spring.app.jwtExpirationMs` |
-| Cookie max age | 24 hours | `JwtUtils.generateJwtCookie()` |
-| Cookie flags | `httpOnly=false`, `secure=false` | `JwtUtils` |
+`SecurityConfig` is an OAuth2 resource server. It verifies the bearer token's RS256
+signature, issuer and expiry against the realm JWKS, and converts
+`realm_access.roles` into authorities with `KeycloakRealmRoleConverter`. The
+principal name is the `email` claim.
 
-#### JWT Claims
+| Path | Rule |
+|---|---|
+| `/api/auth/**`, `/api/public/**`, OpenAPI, Swagger, `/actuator/**` | Permitted |
+| `/api/admin/**` | `ROLE_ADMIN` |
+| Anything else (addresses) | Authenticated |
 
-| Claim | Content |
-|-------|---------|
-| `sub` | Username |
-| `userId` | Numeric user ID |
-| `email` | User email |
-| `roles` | List of role names (e.g. `["ROLE_USER"]`) |
+Before ADR-0012 this class permitted every request and the service parsed a cookie
+by hand. The gateway's rule for `/user-manager/api/admin/**` existed but no
+controller was mapped under it.
 
-### JWT Lifecycle
+### Who the caller is — `AuthUtil`
 
-```mermaid
-sequenceDiagram
-    participant Client
-    participant AuthController
-    participant AuthService
-    participant JwtUtils
-    participant Gateway
-    participant Downstream as Other_Services
+| Method | Returns |
+|---|---|
+| `loggedInEmail()` | The `email` claim (falls back to `preferred_username`) |
+| `loggedInUser()` | The profile row for that email — **inserted if absent** (`REQUIRES_NEW`, so it commits even if the request later fails) |
+| `loggedInUserId()` | `loggedInUser().getUserId()` |
 
-    Client->>AuthController: POST /signin {username, password}
-    AuthController->>AuthService: login(request)
-    AuthService->>AuthService: BCrypt password verify
-    AuthService->>JwtUtils: generateToken(user)
-    JwtUtils-->>AuthService: JWT string
-    AuthService->>JwtUtils: generateJwtCookie(token)
-    AuthService-->>Client: UserInfoResponse + Set-Cookie springBootEcom
+Just-in-time provisioning is how a customer who registered on Keycloak's page
+gets a local row: on their first authenticated request. A provisioned row has
+**no role rows** — the token is what the platform enforces, and the local roles
+only feed the admin dashboard's lists. See Design Note 1.
 
-    Note over Client,Downstream: Subsequent requests
+### Keycloak Admin API — `KeycloakAdminClient`
 
-    Client->>Gateway: Request + springBootEcom cookie
-    Gateway->>Gateway: Validate JWT signature and expiry
-    Gateway->>Downstream: Forward with cookie
+A `RestClient` against `/admin/realms/techzone/...`, authenticated by client
+credentials as `techzone-admin-api`. The token is cached until 30 s before expiry.
+The service account holds `manage-users`, `view-users`, `query-users` on
+`realm-management` — not `manage-realm`, so nothing reachable from here can change
+the realm's roles or clients.
 
-    Client->>AuthController: POST /api/addresses + cookie
-    AuthController->>AuthUtil: loggedInUser()
-    AuthUtil->>JwtUtils: getJwtFromCookies + validateJwtToken
-    AuthUtil->>AuthUtil: Cache claims in request attribute
-```
-
-### Authorization Model — Dual Enforcement
-
-Authorization is split between the **API Gateway** and **application-level** checks:
-
-| Layer | Mechanism | Scope |
-|-------|-----------|-------|
-| **API Gateway** | JWT cookie validation + role mappings | Non-public paths; role patterns like `/user-manager/api/admin/**` |
-| **Spring Security** | `SecurityConfig` — `permitAll()` for all routes | Effectively disabled |
-| **Application** | `AuthUtil` (addresses), `AuthServiceImpl` (login/user details) | Manual JWT cookie parsing |
-
-#### Gateway Public Paths (relevant to user-service)
-
-From `api-gateway/src/main/resources/application.yaml`:
-
-- `/user-manager/api/auth/**` — all auth endpoints, including admin list/delete
-- `/user-manager/v3/api-docs/**` — OpenAPI docs
-
-#### Gateway Role Mappings (user-service)
-
-| Pattern | Required role |
-|---------|---------------|
-| `/user-manager/api/admin/**` | `ROLE_ADMIN` |
-
-No controller endpoints currently use the `/api/admin/**` path; admin operations live under `/api/auth/**` instead.
-
-### Role Assignment at Signup
-
-| Requested role string | Assigned `AppRole` |
-|-----------------------|-------------------|
-| `"user"` or default (empty) | `ROLE_USER` |
-| `"seller"` | `ROLE_SELLER` |
-| `"admin"` | `ROLE_ADMIN` |
-
-Multiple roles can be requested in a single signup request.
-
-### Password Storage
-
-- **Encoder**: `BCryptPasswordEncoder` (bean in `UserServiceConfig`)
-- Passwords are never returned in API responses (except `UserDTO` mapping which may include the hash — used in admin list views)
+Written against `RestClient` rather than `keycloak-admin-client` on purpose: the
+official library brings its own RESTEasy stack and must track the server version,
+which four calls do not justify.
 
 ---
 
 ## 7. Async Integration — RabbitMQ
 
 ### Registration Email Flow
+
+Sent when an administrator creates an account through `POST /api/admin/users`.
+A customer who self-registers on Keycloak's page does not trigger it — user-service
+is not involved in that registration at all.
 
 ```mermaid
 sequenceDiagram
@@ -452,7 +416,7 @@ sequenceDiagram
     participant RabbitMQ
     participant NotificationService
 
-    AuthService->>AuthService: register() saves user
+    AuthService->>AuthService: createUser() — Keycloak account, then profile row
     AuthService->>NotificationProducer: sendRegistrationEmail(email, username)
     NotificationProducer->>RabbitMQ: convertAndSend(exchange, routingKey, NotificationEmail)
     RabbitMQ->>NotificationService: Deliver message
@@ -461,23 +425,8 @@ sequenceDiagram
 
 ### Password-Changed Email Flow
 
-The same producer, exchange and routing key carry a second event: a
-successful `changePassword` call publishes a "password changed" notice to the
-account's own email address.
-
-```mermaid
-sequenceDiagram
-    participant AuthService
-    participant NotificationProducer
-    participant RabbitMQ
-    participant NotificationService
-
-    AuthService->>AuthService: changePassword() saves the new hash
-    AuthService->>NotificationProducer: sendPasswordChangedEmail(email, username)
-    NotificationProducer->>RabbitMQ: convertAndSend(exchange, routingKey, NotificationEmail)
-    RabbitMQ->>NotificationService: Deliver message
-    NotificationService->>NotificationService: Send "password changed" email
-```
+**Removed on 2026-09-12.** A password is changed in Keycloak, which user-service
+never hears about. A notice belongs in Keycloak's own SMTP configuration.
 
 ### Configuration
 
@@ -521,7 +470,7 @@ flowchart LR
 | Source | File | Key settings |
 |--------|------|--------------|
 | **Local bootstrap** | `src/main/resources/application.yaml` | App name, active profile, config-server import, RabbitMQ queue names |
-| **Shared** | `config-server/.../user-service.yml` | JPA `ddl-auto: update`, JWT secret/expiration, cookie name, port 8082, springdoc |
+| **Shared** | `config-server/.../user-service.yml` | JPA `ddl-auto: update`, resource-server `issuer-uri` and `jwk-set-uri`, `techzone.keycloak.*`, port 8082, springdoc |
 | **Dev profile** | `config-server/.../user-service-dev.yml` | MySQL `laptop_ecommerce_graduation_project_user_service`, Eureka localhost, RabbitMQ localhost, frontend URL |
 | **Prod profile** | `config-server/.../user-service-prod.yml` | MySQL `ecommerce`, Docker hostnames (`mysql`, `rabbitmq`, `discovery-service`), springdoc disabled |
 
@@ -532,6 +481,10 @@ flowchart LR
 | `SPRING_PROFILES_ACTIVE` | `dev` | Selects dev or prod config profile |
 | `CONFIG_SERVER_URL` | `http://localhost:8888` | Config server address |
 | `FRONTEND_URL` | `http://localhost:5173` | CORS / frontend reference (prod) |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8090/realms/techzone` | Expected `iss`; compared, never fetched |
+| `KEYCLOAK_JWK_SET_URI` | `http://localhost:8090/realms/techzone/protocol/openid-connect/certs` | Public keys. `http://keycloak:8090/...` inside Docker |
+| `KEYCLOAK_BASE_URL` | `http://localhost:8090` | Admin API. `http://keycloak:8090` inside Docker |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | *(empty)* | `techzone-admin-api` secret. Never committed |
 
 ### Database URLs
 
@@ -544,24 +497,20 @@ flowchart LR
 
 ## 9. Startup Seed Data
 
-On application startup, `UserServiceConfig` runs a `CommandLineRunner` that seeds roles and demo users if they do not already exist.
+On startup `UserServiceConfig` runs a `CommandLineRunner` that seeds the three role
+rows and the demo **profiles**. There are no passwords here: the accounts and
+their credentials are in `backend/keycloak/realm-techzone.json`.
 
-### Roles
+| Profile email (= username) | Local roles | Password (in the realm) |
+|----------|-------|----------|
+| `user1@example.com` | `ROLE_USER` | `password1` |
+| `user2@example.com` | `ROLE_USER` | `password1` |
+| `seller1@example.com` | `ROLE_SELLER`, `ROLE_USER` | `password2` |
+| `admin@example.com` | `ROLE_USER`, `ROLE_SELLER`, `ROLE_ADMIN` | `adminPass` |
 
-| Role name | Enum value |
-|-----------|------------|
-| User | `ROLE_USER` |
-| Seller | `ROLE_SELLER` |
-| Admin | `ROLE_ADMIN` |
-
-### Demo Users
-
-| Username | Email | Password | Roles |
-|----------|-------|----------|-------|
-| `user1` | user1@example.com | `password1` | `ROLE_USER` |
-| `user2` | user2@example.com | `password1` | `ROLE_USER` |
-| `seller1` | seller1@example.com | `password2` | `ROLE_SELLER` |
-| `admin` | admin@example.com | `adminPass` | `ROLE_USER`, `ROLE_SELLER`, `ROLE_ADMIN` |
+**The emails must match the realm import exactly.** A mismatch fails silently:
+the first sign-in provisions a second, roleless profile, and `run-seed.sh` — which
+looks the seller up by email — seeds a catalogue owned by nobody.
 
 ---
 
@@ -581,9 +530,12 @@ These are **not** caught by the global handler and propagate as Spring default e
 
 | Exception | Typical cause | HTTP status |
 |-----------|---------------|-------------|
-| `ResponseStatusException` | Invalid login credentials; missing/invalid JWT on `/auth/user` or `/auth/username` | 404 or 401 |
-| `UsernameNotFoundException` | Missing or invalid JWT cookie on address endpoints | 500 (default) |
-| `RuntimeException` | Role not found during signup | 500 |
+| `UsernameNotFoundException` | `AuthUtil` called without a `JwtAuthenticationToken` — in practice only `/api/auth/user` and `/api/auth/username` with no token, since every other path is refused by the filter chain first | 500 (default) |
+| `RestClientException` | Keycloak unreachable during `POST /api/admin/users` | 500 |
+
+An invalid, forged or expired token never reaches a handler: the resource-server
+filter answers 401. (BUG-19, where a forged signature surfaced as a 500, went with
+`JwtUtils`.)
 
 ### Custom Exception Classes
 
@@ -612,10 +564,9 @@ Multi-stage build in `user-service/Dockerfile`:
 | `spring-cloud-starter-config` | External configuration |
 | `spring-boot-starter-data-jpa` | Persistence |
 | `spring-boot-starter-amqp` | RabbitMQ |
-| `spring-boot-starter-security` | Security framework (permit-all config) |
+| `spring-boot-starter-oauth2-resource-server` | Token validation against the realm JWKS (brings Spring Security) |
 | `spring-boot-starter-validation` | Bean validation |
 | `spring-boot-starter-web` | REST API |
-| `jjwt-api/impl/jackson` (0.13.0) | JWT creation and validation |
 | `mysql-connector-j` | MySQL driver |
 | `modelmapper` (3.2.4) | Entity ↔ DTO mapping |
 | `springdoc-openapi-starter-webmvc-ui` (2.8.13) | Swagger / OpenAPI |
@@ -629,6 +580,7 @@ Start these before running user-service:
 2. **Eureka (Discovery Service)** — `:8761`
 3. **MySQL** — dev database on `:3306`
 4. **RabbitMQ** — `:5672` (for welcome emails)
+5. **Keycloak** — `:8090`, realm `techzone` imported
 
 Run the service:
 
@@ -646,11 +598,18 @@ Or via Docker (requires built JAR and network with other services).
 | **dev** | `http://localhost:8080/user-manager/swagger-ui.html` (via gateway) |
 | **prod** | Disabled (`springdoc.api-docs.enabled: false`) |
 
-OpenAPI is configured with a Bearer JWT security scheme in `SwaggerConfig`, though the runtime auth mechanism is cookie-based.
+OpenAPI is configured with a Bearer JWT security scheme in `SwaggerConfig`, which since ADR-0012 matches how the service actually authenticates (OPS-11, closed).
 
 ### Tests
 
-Only a context-load smoke test exists: `UserServiceApplicationTests.contextLoads()`. No unit or integration tests for JWT, auth flows, or address CRUD.
+| Class | Level | Covers |
+|---|---|---|
+| `AuthServiceImplTest` | unit | The role allow-list (SEC-01), temporary passwords, duplicates, deletion from both stores |
+| `AuthControllerIntegrationTest` | integration | Removed routes answer 404; profile reads; `/api/admin/users/**` needs `ROLE_ADMIN` (SEC-02); a forged token is 401 (BUG-19) |
+| `UserRepositoryIntegrationTest` | integration | Persistence of users, roles, addresses |
+| `UserServiceApplicationTests` | smoke | Context loads |
+
+See [../../quality/test-plan.md](../../quality/test-plan.md).
 
 ---
 
@@ -658,37 +617,47 @@ Only a context-load smoke test exists: `UserServiceApplicationTests.contextLoads
 
 These are intentional or emergent design choices worth documenting for architecture review:
 
-### 1. Symmetric JWT Secret Across All Services
+### 1. Two Sources of Truth About a User
 
-The user-service **creates** tokens; the gateway and downstream services **validate** them using the same HMAC secret. This avoids OAuth2/RS256 complexity but means any service with the secret can forge tokens. A more secure approach would use RS256 where only user-service holds the private key.
+Keycloak holds the account, its credentials and the roles that are enforced.
+MySQL holds the profile, the addresses, and role rows that only the admin
+dashboard's lists read. Nothing reconciles them: a role changed in the Keycloak
+console is not reflected in the seller list, and a customer provisioned just in
+time has no local role rows at all. Deleting through `/api/admin/users` removes
+both records, which is the one place the drift is paid down. An admin-events
+listener would close the rest. Accepted in ADR-0012.
 
-### 2. Cookie-Based JWT (`httpOnly=false`)
+### 2. Email as the Identity Key
 
-Tokens are stored in a readable cookie (`springBootEcom`), not an `Authorization: Bearer` header. This simplifies browser-based auth but exposes tokens to XSS if the frontend has script injection vulnerabilities. `httpOnly=true` would mitigate this.
+Every table here and in order-service keys on email, and email is now a value
+owned by Keycloak. Changing it there silently orphans the user's profile,
+addresses, cart and orders. Self-service email change is off in the realm. The
+correct key is `sub`; moving to it is a two-database migration and needs its own
+ADR.
 
-### 3. Spring Security Effectively Disabled
+### 3. Not Atomic Across Keycloak and MySQL
 
-`SecurityConfig` permits all requests. Authorization is ad hoc via `AuthUtil` and manual JWT checks in service methods. There are no `@PreAuthorize` annotations or a JWT authentication filter.
+Account creation and deletion each make two writes to two systems with no
+compensation. The failure modes are documented under the business rules above.
 
 ### 4. Address Ownership Not Enforced on Update/Delete
 
 `updateAddress` and `deleteAddress` operate on any address ID without verifying the logged-in user owns that address. Only `createAddress` and `getAddressesByLoggedInUser` scope data to the current user.
 
-### 5. Admin Endpoints Under Public Gateway Path
+### 5. Administrator Promotion Is Outside the Application
 
-List/delete customers and sellers live under `/api/auth/**`, which the gateway marks as **public**. No role check occurs at the gateway or Spring Security level for these operations.
+A consequence of the allow-list, accepted deliberately: the dashboard cannot make
+an administrator, and Keycloak console access becomes the thing protecting
+`ROLE_ADMIN`.
 
-### 6. No Token Revocation on Signout
-
-Signout clears the client cookie but does not invalidate the JWT server-side. The token remains valid until expiration (~50 min). There is no token blacklist or refresh-token rotation.
-
-### 7. Eager Role Fetching
+### 6. Eager Role Fetching
 
 `User.roles` uses `FetchType.EAGER`, which loads roles on every user query. This is simple but can cause performance issues at scale (N+1 on role joins).
 
-### 8. Minimal Test Coverage
+### 7. Pre-Migration `password` Column Survives in Existing Databases
 
-Only a Spring context-load test exists. Critical paths (login, signup, JWT validation, address CRUD, delete role guards) are untested.
+`ddl-auto: update` adds and widens but never drops, so an old database keeps its
+column of BCrypt hashes. Drop it by hand — see §4.
 
 ---
 
@@ -699,9 +668,11 @@ Only a Spring context-load test exists. Critical paths (login, signup, JWT valid
 | **Backend overview** | [backend/overview.md](../overview.md) | Module layout, per-service responsibilities, shared conventions |
 | **API reference** | [backend/api-reference.md](../api-reference.md) | Full endpoint tables for all services |
 | **System overview** | [architecture/system-overview.md](../../architecture/system-overview.md) | Ports, request flow, order placement walkthrough |
-| **Security model** | [architecture/security-model.md](../../architecture/security-model.md) | JWT model, gateway role enforcement, enforcement gaps |
+| **Security model** | [architecture/security-model.md](../../architecture/security-model.md) | Keycloak token model, gateway role enforcement, what it does not cover |
+| **ADR-0012** | [architecture/decisions/0012-keycloak-oidc-authentication.md](../../architecture/decisions/0012-keycloak-oidc-authentication.md) | Why authentication moved to Keycloak |
+| **Realm** | [keycloak/realm-techzone.json](../../../backend/keycloak/realm-techzone.json) | Clients, roles, demo accounts |
 | **API Gateway config** | [api-gateway/src/main/resources/application.yaml](../../../backend/api-gateway/src/main/resources/application.yaml) | Routes, CORS, public paths, role mappings |
-| **Config Server — shared** | [config-server/src/main/resources/config/user-service.yml](../../../backend/config-server/src/main/resources/config/user-service.yml) | JWT, port, JPA |
+| **Config Server — shared** | [config-server/src/main/resources/config/user-service.yml](../../../backend/config-server/src/main/resources/config/user-service.yml) | Issuer, Admin API, port, JPA |
 | **Config Server — dev** | [config-server/src/main/resources/config/user-service-dev.yml](../../../backend/config-server/src/main/resources/config/user-service-dev.yml) | Dev database, Eureka, RabbitMQ |
 | **Config Server — prod** | [config-server/src/main/resources/config/user-service-prod.yml](../../../backend/config-server/src/main/resources/config/user-service-prod.yml) | Prod database, Docker hostnames |
 | **Swagger UI (dev)** | `http://localhost:8080/user-manager/swagger-ui.html` | Interactive API documentation |

@@ -1,52 +1,23 @@
 /**
  * A very small HTTP client for the end-to-end suites.
  *
- * The platform authenticates with a cookie, and Node's fetch does not keep a cookie jar,
- * so a Session holds the cookies it is given and sends them back - which is exactly what a
- * browser does, and therefore what these tests need in order to exercise the real
- * authentication path rather than a bearer-token shortcut.
+ * Since ADR-0012 the platform authenticates with `Authorization: Bearer <token>` and there
+ * is no cookie at all, so this no longer keeps a cookie jar. A Session holds an access
+ * token and sends it on every request — which is what the SPA does, and therefore what
+ * these tests need in order to exercise the real authentication path.
  */
 
-import { AUTH_COOKIE, GATEWAY_URL, REQUEST_TIMEOUT_MS } from './config.js';
+import { GATEWAY_URL, REQUEST_TIMEOUT_MS } from './config.js';
 
 export class Session {
   constructor(baseUrl = GATEWAY_URL) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
-    this.cookies = new Map();
+    this.accessToken = null;
     this.identity = null;
   }
 
-  get authCookie() {
-    return this.cookies.get(AUTH_COOKIE) ?? null;
-  }
-
   get isAuthenticated() {
-    const token = this.authCookie;
-    return typeof token === 'string' && token.length > 0;
-  }
-
-  #storeCookies(response) {
-    const raw = typeof response.headers.getSetCookie === 'function'
-      ? response.headers.getSetCookie()
-      : [response.headers.get('set-cookie')].filter(Boolean);
-
-    for (const header of raw) {
-      const [pair] = header.split(';');
-      const separator = pair.indexOf('=');
-      if (separator < 0) continue;
-      const name = pair.slice(0, separator).trim();
-      const value = pair.slice(separator + 1).trim();
-      if (value === '' || /Max-Age=0/i.test(header)) {
-        this.cookies.delete(name);
-      } else {
-        this.cookies.set(name, value);
-      }
-    }
-  }
-
-  #cookieHeader() {
-    if (this.cookies.size === 0) return undefined;
-    return [...this.cookies.entries()].map(([name, value]) => `${name}=${value}`).join('; ');
+    return typeof this.accessToken === 'string' && this.accessToken.length > 0;
   }
 
   /**
@@ -59,8 +30,9 @@ export class Session {
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
     const requestHeaders = { ...headers };
 
-    const cookieHeader = this.#cookieHeader();
-    if (cookieHeader) requestHeaders.Cookie = cookieHeader;
+    if (this.isAuthenticated && requestHeaders.Authorization === undefined) {
+      requestHeaders.Authorization = `Bearer ${this.accessToken}`;
+    }
 
     let payload;
     if (body !== undefined) {
@@ -87,8 +59,6 @@ export class Session {
     } finally {
       clearTimeout(timer);
     }
-
-    this.#storeCookies(response);
 
     const text = await response.text();
     let parsed = null;
@@ -119,9 +89,9 @@ export class Session {
     return this.request('DELETE', path, options);
   }
 
-  /** Drops every cookie, returning the session to an anonymous state. */
+  /** Drops the token, returning the session to an anonymous state. */
   reset() {
-    this.cookies.clear();
+    this.accessToken = null;
     this.identity = null;
   }
 }

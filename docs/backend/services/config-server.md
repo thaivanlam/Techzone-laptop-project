@@ -159,9 +159,10 @@ them even if Config Server is unreachable (`optional:` means startup continues).
 | Key | Value |
 |---|---|
 | `spring.jpa.hibernate.ddl-auto` | `update` |
-| `spring.app.jwtSecret` | shared HMAC secret literal |
-| `spring.app.jwtExpirationMs` | `3000000` (50 minutes) |
-| `spring.ecom.app.jwtCookieName` | `springBootEcom` |
+| `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `${KEYCLOAK_ISSUER_URI:http://localhost:8090/realms/techzone}` |
+| `spring.security.oauth2.resourceserver.jwt.jwk-set-uri` | `${KEYCLOAK_JWK_SET_URI:http://localhost:8090/realms/techzone/protocol/openid-connect/certs}` |
+| `techzone.keycloak.base-url` / `realm` / `admin-client-id` | `${KEYCLOAK_BASE_URL:…}`, `techzone`, `techzone-admin-api` |
+| `techzone.keycloak.admin-client-secret` | `${KEYCLOAK_ADMIN_CLIENT_SECRET:}` — from the environment only |
 | `server.port` | `8082` |
 | `springdoc.api-docs.enabled` | `true` |
 
@@ -178,7 +179,7 @@ them even if Config Server is unreachable (`optional:` means startup continues).
 | Key | Value |
 |---|---|
 | `spring.jpa.hibernate.ddl-auto` | `update` |
-| `spring.app.jwtSecret` / `jwtExpirationMs` / cookie name | same shared values |
+| `spring.security.oauth2.resourceserver.jwt.*` | same issuer and JWKS URIs |
 | `spring.servlet.multipart.max-file-size` / `max-request-size` | `50MB` / `50MB` |
 | `project.image` | `images/` |
 | `server.port` | `8081` |
@@ -198,7 +199,7 @@ consumes messages.
 | Key | Value |
 |---|---|
 | `spring.jpa.hibernate.ddl-auto` | `update` |
-| `spring.app.jwtSecret` / `jwtExpirationMs` / cookie name | same shared values |
+| `spring.security.oauth2.resourceserver.jwt.*` | same issuer and JWKS URIs |
 | `server.port` | `8083` |
 | `stripe.secret.key` | `${STRIPE_SECRET_KEY}` — **no default, required** |
 
@@ -365,9 +366,11 @@ the first thing to change for a real deployment.
 
 ### 2. Secrets sit next to non-secrets
 
-`jwtSecret` and the MySQL password are literals in the same files that carry
-ports and JPA flags. Only the Stripe key and the Gmail app password are
-externalized. Anyone who can read the repository can forge an admin JWT.
+The MySQL password and the mail username are literals in the same files that carry
+ports and JPA flags. The Stripe key, the Gmail app password and — since
+2026-09-12 — the Keycloak admin client secret are externalized. The shared JWT
+secret that used to sit here, letting anyone with repository access forge an admin
+token (SEC-04), is gone: ADR-0012 moved token signing to Keycloak.
 
 ### 3. Duplication across the twelve files
 
@@ -406,6 +409,6 @@ failed context.
 | Why native profile instead of a git backend | [../../architecture/decisions/0006-config-server-native-profile.md](../../architecture/decisions/0006-config-server-native-profile.md) |
 | Startup order, `.env` contents, seeded users | [../../operations/running-locally.md](../../operations/running-locally.md) |
 | Services and ports | [../../architecture/system-overview.md](../../architecture/system-overview.md) |
-| JWT secret and cookie name usage | [../../architecture/security-model.md](../../architecture/security-model.md) |
+| Token verification and Keycloak settings | [../../architecture/security-model.md](../../architecture/security-model.md) |
 | Backend module layout | [../overview.md](../overview.md) |
 | Consumers | [user-service.md](user-service.md) · [product-service.md](product-service.md) · [order-service.md](order-service.md) · [notification-service.md](notification-service.md) |

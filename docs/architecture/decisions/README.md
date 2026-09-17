@@ -19,8 +19,8 @@ New decision? Copy [`template.md`](template.md) to the next free number.
 |---|---|---|---|
 | [0001](0001-spring-cloud-gateway-webflux.md) | Use the WebFlux variant of Spring Cloud Gateway | Accepted | api-gateway |
 | [0002](0002-eureka-service-discovery.md) | Use Eureka for service discovery instead of Kubernetes | Accepted | discovery-service, all services |
-| [0003](0003-shared-hmac-jwt-secret.md) | Share one HMAC-SHA JWT secret across all services | Accepted | user-service, gateway, product, order |
-| [0004](0004-cookie-based-jwt.md) | Carry the JWT in a readable cookie, not an Authorization header | Accepted | user-service, gateway, frontend |
+| [0003](0003-shared-hmac-jwt-secret.md) | Share one HMAC-SHA JWT secret across all services | Superseded by [0012](0012-keycloak-oidc-authentication.md) | user-service, gateway, product, order |
+| [0004](0004-cookie-based-jwt.md) | Carry the JWT in a readable cookie, not an Authorization header | Superseded by [0012](0012-keycloak-oidc-authentication.md) | user-service, gateway, frontend |
 | [0005](0005-rabbitmq-for-notifications.md) | Deliver notification email asynchronously over RabbitMQ | Accepted | order, user, notification |
 | [0006](0006-config-server-native-profile.md) | Run Config Server on the native profile, not Git-backed | Accepted | config-server, all services |
 | [0007](0007-embedded-product-snapshot.md) | Embed a ProductSnapshot in order and cart items | Accepted | order-service |
@@ -28,6 +28,7 @@ New decision? Copy [`template.md`](template.md) to the next free number.
 | [0009](0009-resttemplate-for-service-calls.md) | Call Product Service from Order Service with RestTemplate | Accepted | order-service, product-service |
 | [0010](0010-prometheus-grafana-metrics.md) | Measure the platform with Micrometer, Prometheus and Grafana | Accepted | all services, Compose, `tests/load/` |
 | [0011](0011-session-records-in-a-private-repository.md) | Record every development session, in a separate private repository | Accepted | `scripts/`, `docs/dev-log/`, the docs workflow |
+| [0012](0012-keycloak-oidc-authentication.md) | Delegate authentication to Keycloak and validate OIDC access tokens | Accepted | gateway, user, product, order, frontend, Compose |
 
 ## Reading them together
 
@@ -37,6 +38,10 @@ Several records answer the same underlying question and are best read as pairs:
   trusted) and [0004](0004-cookie-based-jwt.md) (how it travels). Both trade
   security margin for simplicity, and both are the source of entries in
   [`../../backend/known-defects.md`](../../backend/known-defects.md).
+  [0012](0012-keycloak-oidc-authentication.md) replaced both at once on
+  2026-09-12 and is best read after them — it is an answer to the costs they
+  record. The pair are kept, unedited apart from their status, as the record of
+  what the platform used to do and why.
 - **The service boundary** — [0007](0007-embedded-product-snapshot.md) (data
   across it) and [0009](0009-resttemplate-for-service-calls.md) (calls across
   it), with [0008](0008-single-mysql-multiple-databases.md) explaining why the

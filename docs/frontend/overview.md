@@ -41,7 +41,8 @@ Related documents: [design-decisions.md](design-decisions.md) ·
 | Library | Purpose |
 |---|---|
 | **@stripe/react-stripe-js**, **@stripe/stripe-js** | Stripe Elements for card payments |
-| **axios** | HTTP client with `withCredentials` cookie support |
+| **axios** | HTTP client; interceptors attach the bearer token and refresh once on 401 |
+| **keycloak-js** 26.0.7 | OIDC adapter: Authorization Code + PKCE, token refresh, logout (ADR-0012) |
 | **classnames** | Conditional class composition (sidebar active state) |
 | **react-loader-spinner** | Loading animations (Vortex spinner) |
 
@@ -119,18 +120,32 @@ where they can view status and cancel pending orders.
 ### Authentication
 
 ```
-Register (select role: Customer / Seller / Admin)
-  → Login (JWT cookie auth via withCredentials)
-    → Role-based redirect:
+Sign up / Sign in → redirect to Keycloak (realm techzone, client techzone-spa, PKCE)
+  → back with an authorization code → keycloak-js exchanges it for tokens
+    → Role-based redirect (roles from realm_access.roles):
         Customer → Home page (shop, cart, orders)
         Seller   → Admin panel (own products & orders only)
         Admin    → Admin panel (dashboard, products, categories,
                    sellers, customers, all orders)
 ```
 
-Auth state is persisted in `localStorage` and rehydrated into the Redux store on
-page load. The axios instance sets `withCredentials: true` so the
-`springBootEcom` JWT cookie travels with every request.
+`src/auth/keycloak.js` owns the session. `main.jsx` calls `initKeycloak()` with
+`check-sso` **before rendering**, so a signed-in user is recognised without a flash
+of the signed-out UI and a visitor still gets the public catalogue. On success it
+dispatches `LOGIN_USER` with `userFromToken()` — the same `{ id, username, email,
+roles }` shape the old sign-in response had, which is why `PrivateRoute` and the
+twenty other components reading `state.auth` did not change. `id` is now the `sub`
+UUID.
+
+Tokens are kept **in memory** by `keycloak-js`; nothing is written to
+`localStorage` or a cookie. `src/api/api.js` refreshes the token when it is within
+30 seconds of expiry, attaches `Authorization: Bearer`, and on a 401 refreshes once
+and retries — otherwise it sends the user to Keycloak (the `BUG-03` fix). Sign-out
+is Keycloak's end-session endpoint, which revokes the session.
+
+`/login` and `/register` are now redirect pages: there is no credential form in the
+bundle. Registration assigns `ROLE_USER` and nothing else; the old role selector is
+gone with `SEC-01`. Branding the sign-in screen is a Keycloak theme, not SPA code.
 
 ### Admin / Seller Panel
 
@@ -194,20 +209,14 @@ addresses are never referenced.
 
 ### Change Password (Profile)
 
-- Available from **Profile → Security** to every signed-in role — customer,
-  seller and admin alike — via `ChangePasswordModal.jsx`
-- Two-step flow: the current password is verified against the backend first
-  (`POST /user-manager/api/users/password/verify`), with a spinner while the
-  call is in flight and a green "Verified" badge on success; only then does
-  the new-password / confirm-password step render
-- Client-side checks (minimum length, confirmation match) gate the submit
-  button before the change request
-  (`PUT /user-manager/api/users/password`) is sent; a toast reports success or
-  the server's rejection reason, and the modal closes on success
-- The backend queues a "password changed" email through the same
-  RabbitMQ/notification-service path used for the registration welcome email
-  — see
-  [../backend/services/user-service.md](../backend/services/user-service.md#account-self-service--accountcontroller)
+- **Profile → Security** opens `ChangePasswordModal.jsx`, which since ADR-0012 is a
+  short explanation and a link to Keycloak's account console
+  (`accountConsoleUrl()` in `src/auth/keycloak.js`). The two-step verify / change
+  form and its endpoints were removed with the `password` column; Keycloak applies
+  the realm password policy and brute-force protection itself.
+- **Admin → Sellers → Add** (`AddSellerForm.jsx`) collects first name, last name and
+  email only. The response's one-time temporary password is shown on screen until
+  the admin closes the dialog; Keycloak makes the seller replace it at first login.
 
 ### Role-Based Access Control
 
@@ -279,8 +288,9 @@ does two things beyond serving files:
   default `http://api-gateway:8080`).
 
 Because of that proxy the container is built with `VITE_BACK_END_URL` **empty**:
-the SPA calls its own origin, which removes CORS from the picture and keeps the
-`springBootEcom` JWT cookie first-party.
+the SPA calls its own origin for the API, which removes CORS from the picture.
+Keycloak is the exception: the browser is redirected to `VITE_KEYCLOAK_URL`
+(`http://localhost:8090`) and back, so it is a build argument and is not proxied.
 
 ```bash
 # whole platform, from the repo root

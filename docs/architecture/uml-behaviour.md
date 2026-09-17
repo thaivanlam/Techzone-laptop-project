@@ -22,40 +22,39 @@ Siblings: [uml-use-cases.md](uml-use-cases.md) ·
 
 ## 1. Sequence — Registration
 
-Source: `AuthController.registerUser`, `RabbitMQProducer`,
-`NotificationService`.
+Source: Keycloak's registration page; `AuthUtil.loggedInUser()` for the profile row.
+Since ADR-0012 (2026-09-12) the platform takes no part in registration itself.
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor V as Visitor
     participant SPA as React SPA
+    participant KC as Keycloak (realm techzone)
     participant GW as API Gateway
     participant US as User Service
     participant DB as MySQL (ecommerce)
-    participant MQ as RabbitMQ
-    participant NS as Notification Service
-    participant SMTP as Gmail SMTP
 
-    V->>SPA: fill registration form, pick role
-    SPA->>GW: POST /user-manager/api/auth/signup
-    Note over GW: path is public — no token required
-    GW->>US: POST /api/auth/signup
-    US->>DB: SELECT by username / email
-    alt already taken
-        US-->>SPA: 400 "Username is already taken"
-    else free
-        US->>US: BCrypt.encode(password)
-        US->>DB: INSERT user + user_role
-        US->>MQ: publish welcome message
-        US-->>SPA: 200 "User registered successfully"
-        MQ->>NS: deliver
-        NS->>SMTP: send welcome mail
-    end
+    V->>SPA: "Sign up"
+    SPA->>KC: redirect — keycloak.register(), PKCE S256
+    V->>KC: email + password on Keycloak's page
+    KC->>KC: password policy, duplicate-email check
+    KC->>KC: create account, assign default role → ROLE_USER
+    KC-->>SPA: redirect back with an authorization code
+    SPA->>KC: code + code_verifier
+    KC-->>SPA: access token (RS256) + refresh token
+    SPA->>GW: GET /user-manager/api/auth/user, Bearer token
+    GW->>US: forward
+    US->>DB: findByEmail — not found
+    US->>DB: INSERT profile row (just-in-time)
+    US-->>SPA: 200 id, username, email, roles
 ```
 
-The role in step 2 is taken from the payload and granted as submitted — the
-mechanism behind `SEC-01`.
+There is no field anywhere in this flow that could ask for a role. The account
+gets the realm's default role, `ROLE_USER` — which is how `SEC-01` was closed.
+An administrator creates sellers separately, through `POST /api/admin/users`,
+which writes the Keycloak account and the profile row in one operation and
+publishes the welcome email.
 
 ---
 
@@ -66,39 +65,37 @@ sequenceDiagram
     autonumber
     actor C as Customer
     participant SPA as React SPA
+    participant KC as Keycloak
     participant GW as API Gateway
-    participant US as User Service
     participant SVC as Any business service
 
-    C->>SPA: credentials
-    SPA->>GW: POST /user-manager/api/auth/signin
-    GW->>US: POST /api/auth/signin
-    US->>US: BCrypt verify
-    US->>US: JwtUtils.generateJwtCookie()<br/>HS256, claims sub/userId/email/roles
-    US-->>SPA: 200 + Set-Cookie springBootEcom
-    Note over SPA: axios withCredentials: true<br/>user cached in localStorage
+    C->>SPA: "Sign in"
+    SPA->>KC: redirect, code_challenge (S256)
+    C->>KC: credentials — entered on Keycloak, never in the SPA
+    KC-->>SPA: authorization code
+    SPA->>KC: code + code_verifier
+    KC-->>SPA: access token (RS256, 5 min) + rotating refresh token
+    Note over SPA: keycloak-js keeps tokens in memory<br/>auth slice seeded from claims
 
     C->>SPA: any protected action
-    SPA->>GW: request + Cookie springBootEcom
+    SPA->>SPA: updateToken(30) if close to expiry
+    SPA->>GW: request + Authorization: Bearer token
     GW->>GW: public path? no
-    GW->>GW: validate signature, read roles
+    GW->>GW: verify signature against cached JWKS, iss, exp<br/>read realm_access.roles
     alt role rule matches and role missing
-        GW-->>SPA: 403 JSON error
+        GW-->>SPA: 403 {"error":"Insufficient permissions"}
     else allowed
-        GW->>SVC: forward, prefix stripped
-        SVC->>SVC: AuthUtil re-parses the same cookie<br/>email claim = identity
+        GW->>SVC: forward, prefix stripped, header kept
+        SVC->>SVC: resource server verifies the token again<br/>AuthUtil: email claim = identity
         SVC-->>SPA: 200 payload
     end
 ```
 
-The token is validated **twice** — once at the gateway for access, once in the
-service for identity — and no `SecurityContext` is built downstream. That is
-what makes services stateless, and also what makes a missing gateway rule an
-unauthenticated endpoint rather than merely an unauthorised one.
-
-A forged signature does not travel this path cleanly: the validity check lets
-`SignatureException` escape instead of returning false, so the gateway answers
-`500` where `401` belongs (`BUG-19`).
+The token is verified **twice** — at the gateway for access, in the service as a
+resource server of its own — and neither contacts Keycloak on the way: both use
+the cached public keys. A forged or expired token is a clean `401` at whichever
+hop sees it first (`BUG-19`, where a forged signature produced a `500`, went with
+the hand-written validators).
 
 ---
 

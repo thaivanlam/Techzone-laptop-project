@@ -99,6 +99,12 @@ as a documented limitation rather than a hidden bug.
 
 ## 7. Role Selection at Registration
 
+> **Superseded on 2026-09-12 by
+> [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md).**
+> Registration is Keycloak's page and grants only `ROLE_USER`; sellers are created
+> by an administrator, and administrators only in the Keycloak console. Kept as the
+> record of the original trade-off, which was `SEC-01`.
+
 **Decision:** Users self-select their role (Customer, Seller, or Admin) at
 signup.
 
@@ -111,6 +117,14 @@ production would require an approval or invitation workflow. See
 ---
 
 ## 8. Single Axios Instance with Cookie Auth
+
+> **Revised on 2026-09-12 by
+> [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md).** The
+> single instance stays; the cookie does not. `api.js` has no `withCredentials`, and
+> gained the interceptors the trade-off below asked for: one attaches
+> `Authorization: Bearer` after refreshing a near-expiry token, the other refreshes
+> once on a 401 and otherwise redirects to Keycloak. Tokens are held in memory by
+> `keycloak-js`. The original text follows.
 
 **Decision:** One axios instance in `api/api.js`, configured with
 `withCredentials: true` and the gateway base URL. Every call uses it.

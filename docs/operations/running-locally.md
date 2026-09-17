@@ -58,8 +58,15 @@ COMPOSE_PROFILES=prod,observability docker compose up --build
 
 Open http://localhost:5173. The SPA is served by nginx, which reverse-proxies
 `/user-manager`, `/product-manager`, and `/order-manager` to `api-gateway:8080`
-inside the Docker network — the browser only ever talks to one origin, so no
-CORS configuration is involved.
+inside the Docker network — the browser only ever talks to one origin for the
+API, so no CORS configuration is involved.
+
+Signing in is the exception, by design. "Sign in" redirects the browser to
+**Keycloak on http://localhost:8090** and back (ADR-0012), so port 8090 must be
+reachable from the browser in every mode. Keycloak starts with the
+infrastructure, not with the `prod` profile, and the gateway and services wait
+for its healthcheck — on a cold start expect it to be the last thing to turn
+healthy.
 
 The first build compiles seven Maven projects and installs the npm
 dependencies, so expect several minutes. Later runs are cached.
@@ -85,6 +92,10 @@ dependencies, so expect several minutes. Later runs are cached.
 | `PROMETHEUS_PORT` | `9090` | Host port for Prometheus. Only used with the `observability` profile. |
 | `GRAFANA_PORT` | `3001` | Host port for Grafana. Not 3000 — that stays free for a frontend dev server, which the gateway allows as a CORS origin. |
 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | `admin` / `admin` | Grafana's administrator account. Viewing is anonymous; editing is not. |
+| `KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD` | `admin` / — | Keycloak admin console. The console is where an administrator is promoted — no API can do it |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET`, `KEYCLOAK_TESTS_CLIENT_SECRET` | — | Client secrets; Compose falls back to named development defaults when empty |
+| `KEYCLOAK_ISSUER_URI` / `KEYCLOAK_JWK_SET_URI` | public / container address | Deliberately different — see [configuration-reference.md](configuration-reference.md#2-root-env--the-full-stack) |
+| `VITE_KEYCLOAK_URL` | `http://localhost:8090` | Where the SPA sends the browser to sign in. **Build time.** |
 
 The two profile variables must agree. Setting `COMPOSE_PROFILES=prod` while
 `SPRING_PROFILES_ACTIVE=dev` starts containers that try to reach `localhost`
@@ -148,7 +159,7 @@ Step-by-step VS Code setup (extensions, JDK runtime mapping, a ready-to-copy
 
 ```bash
 cd backend
-docker-compose up -d           # mysql, rabbitmq, config-server, discovery-service
+docker-compose up -d           # mysql, rabbitmq, keycloak, config-server, discovery-service
 
 # then, per service, in its own terminal:
 cd user-service && ./mvnw spring-boot:run
@@ -161,6 +172,11 @@ cd api-gateway && ./mvnw spring-boot:run
 Start Config Server and Discovery Service first if running them outside Docker
 too — every business service resolves configuration at startup and registers
 with Eureka.
+
+The services run on the host here, so the Keycloak variables in
+`env/mode3-hybrid-dev.backend.env` point both `KEYCLOAK_JWK_SET_URI` and
+`KEYCLOAK_BASE_URL` at `localhost:8090`. Export them into the IDE launch
+configuration, or the Config Server defaults (which are the same values) apply.
 
 In `dev`, each service uses its own MySQL schema (for example
 `laptop_ecommerce_graduation_project_user_service`) rather than the shared
@@ -176,6 +192,8 @@ The frontend runs on the Vite dev server exactly as in Mode 2.
 |---|---|
 | Frontend | http://localhost:5173 |
 | API Gateway | http://localhost:8080 |
+| Keycloak — sign-in, registration | http://localhost:8090/realms/techzone/account |
+| Keycloak — admin console | http://localhost:8090/admin (`KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD`) |
 | Eureka dashboard | http://localhost:8761 |
 | RabbitMQ management | http://localhost:15672 (guest / guest) |
 | Config Server | http://localhost:8888 |
@@ -193,15 +211,27 @@ Compose was started with the `observability` profile — see
 
 ## Seeded Users
 
-Created on first startup by each service's `CommandLineRunner` if they do not
-already exist.
+Since ADR-0012 the accounts live in **Keycloak**, imported from
+`backend/keycloak/realm-techzone.json` the first time Keycloak starts. Sign in
+with the **email address** — the realm is email-as-username. user-service's
+`CommandLineRunner` writes the matching local profile rows (no passwords) so the
+dashboard lists them and the seeded catalogue has an owner.
 
-| Username | Email | Password | Roles |
+| Sign in as | Password | Realm roles | In the token |
 |---|---|---|---|
-| `admin` | admin@example.com | `adminPass` | ADMIN + SELLER + USER |
-| `seller1` | seller1@example.com | `password2` | SELLER |
-| `user1` | user1@example.com | `password1` | USER |
-| `user2` | user2@example.com | `password1` | USER |
+| `admin@example.com` | `adminPass` | `ROLE_ADMIN` | ADMIN + SELLER + USER, through the composites |
+| `seller1@example.com` | `password2` | `ROLE_SELLER` | SELLER + USER |
+| `user1@example.com` | `password1` | default | USER |
+| `user2@example.com` | `password1` | default | USER |
+
+> **Every password from before 2026-09-12 is invalid.** BCrypt hashes cannot be
+> imported into Keycloak without a custom provider, so the demo accounts were
+> recreated and the old `user`-table credentials dropped with the column. The
+> usernames `admin`, `seller1`, `user1` no longer work — use the emails.
+
+The import runs **only if the realm does not exist yet**. Editing the realm file
+on a stack that has already started changes nothing; drop the volume
+(`docker compose down -v`) or make the change in the admin console.
 
 ---
 
@@ -217,13 +247,14 @@ docker compose logs -f db-seed
 ```
 
 The one-shot `db-seed` container waits for product-service to create its tables,
-then loads the catalogue and assigns it to `seller1`. It skips itself if the
+then loads the catalogue and assigns it to `seller1@example.com` — looked up by
+email in the `user` table. It skips itself if the
 catalogue already has rows, so leaving the profile enabled is safe. The three
 databases themselves are created before any service starts, by the scripts in
 `backend/init-db/`.
 
 After seeding, run the one check that actually exercises id generation: sign in
-as `seller1` / `password2`, open `/admin/products` and create a product. Seeded
+as `seller1@example.com` / `password2`, open `/admin/products` and create a product. Seeded
 products carry explicit ids 1–14, so if the seeder failed to raise
 `product_seq`, that save fails on a duplicate primary key — while browsing,
 search and checkout all still look fine.
@@ -246,7 +277,13 @@ complete verification procedure.
 | Stripe redirect lands on the wrong port | `FRONTEND_URL` was changed without rebuilding the frontend image (it is baked in as `VITE_FRONTEND_URL`) |
 | A service exits at startup with a config error | Config Server not healthy yet, or `CONFIG_SERVER_URL` unreachable from the container |
 | Gateway returns 503 for a route | The target service has not registered with Eureka yet — check http://localhost:8761 |
-| Login succeeds but later calls return 401 | JWT expired (~50 minutes) and there is no refresh; sign in again |
+| Every authenticated call returns 401 `Invalid or expired token` | The `iss` claim does not match `KEYCLOAK_ISSUER_URI`. Most often the issuer and JWKS URLs were set to the same value, or the SPA reached Keycloak under a different host name than `KEYCLOAK_PUBLIC_URL` |
+| "Sign in" redirects to a page that does not load | Keycloak is not up, or `VITE_KEYCLOAK_URL` is not reachable from the browser. `docker compose ps keycloak`; it takes the longest of any container to become healthy |
+| Keycloak says `Invalid parameter: redirect_uri` | The SPA is served from an origin not in `techzone-spa`'s redirect URIs (`localhost:5173`, `localhost:3000`). Add it in the admin console, and to the realm file |
+| Sign-in works, but the old demo passwords do not | Expected — see Seeded Users. Use the email and the realm's password |
+| `POST /api/admin/users` fails naming `KEYCLOAK_ADMIN_CLIENT_SECRET` | The variable is empty in user-service, or differs from the secret the realm was first imported with |
+| Changes to `realm-techzone.json` have no effect | The realm already exists and the import is skipped; `docker compose down -v`, or edit it in the console |
+| Session ends after a few minutes idle | Expected: access tokens last 5 minutes and the SSO session 30 minutes idle. The SPA refreshes silently while it is in use |
 | CORS errors in the browser | Only possible in Modes 2 and 3: `FRONTEND_URL` does not match the origin the SPA is served from |
 | Product images 404 | `IMAGE_BASE_URL` points at an origin that is not published, or was left at port 8080 while the gateway port changed |
 | Order placement fails at checkout | Product Service is down — there is no circuit breaker, so the call fails hard |

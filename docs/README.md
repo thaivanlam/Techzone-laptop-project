@@ -34,6 +34,7 @@ originates in either submodule is mirrored and maintained here.
 | [architecture/uml-behaviour.md](architecture/uml-behaviour.md) | Four sequence diagrams, the order state machine, and the faceted-search activity flow |
 | [architecture/decisions/](architecture/decisions/) | Architecture Decision Records — one file per platform decision, with status and trade-offs |
 | [architecture/design-decisions.md](architecture/design-decisions.md) | Index mapping "why is X the way it is?" to the ADR that answers it |
+| [architecture/keycloak-migration-plan.md](architecture/keycloak-migration-plan.md) | Staged plan for [ADR-0012](architecture/decisions/0012-keycloak-oidc-authentication.md): moving authentication to Keycloak — scope, realm design, seven stages, file inventory, effort, and how the implementation departed from it. **Implemented 2026-09-12** |
 
 ### Backend
 | Document | What it covers |

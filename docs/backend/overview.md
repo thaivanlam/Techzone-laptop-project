@@ -44,8 +44,8 @@ The single entry point. Responsibilities:
 
 - **Routing** — strips the `/{service}-manager` prefix and forwards to a Eureka-
   resolved instance (`lb://USER-SERVICE`, etc.).
-- **Authentication** — `AuthenticationFilter` validates the `springBootEcom` JWT
-  cookie on every non-public path.
+- **Authentication** — an OAuth2 resource-server filter chain verifies the Keycloak
+  bearer token on every non-public path (ADR-0012).
 - **Authorization** — `role-mappings` in `application.yaml` gate admin and
   seller path patterns. See
   [../architecture/security-model.md](../architecture/security-model.md#gateway-enforcement).
@@ -78,10 +78,11 @@ Full document: [services/discovery-service.md](services/discovery-service.md).
 
 ### User Service (`:8082`) — `/user-manager/**`
 
-Identity and profile. Registration, login with BCrypt verification, JWT issuance
-into the `springBootEcom` cookie, paginated customer/seller listing and
-deletion, and address CRUD. Publishes a welcome-email message to RabbitMQ on
-signup. It is the platform's only token issuer.
+Profile and user administration. The local `user` row keyed on email (created just
+in time from the caller's token), address CRUD, and `ROLE_ADMIN`-only account
+management that creates and deletes accounts through Keycloak's Admin API. Publishes
+a welcome-email message to RabbitMQ when an administrator creates an account.
+Since ADR-0012 it issues no tokens and stores no passwords — Keycloak does both.
 
 Full document: [services/user-service.md](services/user-service.md).
 
@@ -130,7 +131,7 @@ Full document: [services/notification-service.md](services/notification-service.
 | Mapping | ModelMapper for entity ↔ DTO |
 | Pagination | `pageNumber`, `pageSize`, `sortBy`, `sortOrder` query params with `AppConstants` defaults |
 | Errors | `@RestControllerAdvice` global handler returning `APIResponse(message, status)` |
-| Identity | JWT cookie parsed manually by a per-service `AuthUtil`; no `SecurityContext` downstream |
+| Identity | Keycloak bearer token verified by Spring Security in every service; `AuthUtil.loggedInEmail()` reads the `email` claim from the `SecurityContext` |
 | API docs | springdoc-openapi, enabled in `dev`, disabled in `prod` |
 | Build | Multi-stage Dockerfile per service (OpenJDK 21 builder + runtime; notification-service is still on JDK 17) |
 

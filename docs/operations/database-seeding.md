@@ -295,25 +295,27 @@ exactly the path a demo or a defence never exercises until it matters.
 | Error toast, and `docker compose logs product-service` shows `Duplicate entry '1' for key 'product.PRIMARY'` | `product_seq` was never raised — re-run the seeder, or fix it by hand (below) |
 
 `AddProductForm` picks the seller or admin endpoint from the logged-in user's
-roles, so signing in as `seller1` genuinely exercises
+roles, so signing in as `seller1@example.com` genuinely exercises
 `POST /product-manager/api/seller/categories/{categoryId}/product`.
 
 #### Through the API
 
-Same test without a browser. The JWT arrives as the `springBootEcom` cookie, so
-keep a cookie jar:
+Same test without a browser. Since ADR-0012 the token comes from Keycloak and
+travels as a bearer header, so fetch one with the development-only
+`techzone-tests` client and keep it in a variable:
 
 ```bash
-# 1. sign in as the seller
-curl -s -c jar.txt -X POST http://localhost:5173/user-manager/api/auth/signin \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"seller1","password":"password2"}'
+# 1. obtain a token for the seller
+TOKEN=$(curl -s -X POST http://localhost:8090/realms/techzone/protocol/openid-connect/token \
+  -d client_id=techzone-tests -d client_secret="$KEYCLOAK_TESTS_CLIENT_SECRET" \
+  -d grant_type=password -d username=seller1@example.com -d password=password2 \
+  | python -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 
 # 2. find a category id to create under
 curl -s http://localhost:5173/product-manager/api/public/categories
 
 # 3. create a product in that category (categoryId 1 here)
-curl -s -b jar.txt -X POST \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST \
   http://localhost:5173/product-manager/api/seller/categories/1/product \
   -H 'Content-Type: application/json' \
   -d '{

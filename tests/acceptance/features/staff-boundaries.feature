@@ -1,8 +1,9 @@
 # Acceptance criteria for who is allowed to do what.
 # Executed by acceptance/staff.test.js.
 #
-# Two scenarios are marked KNOWN GAP: they describe behaviour that the platform does not
-# yet have. They are written here because they are genuine acceptance criteria, and the
+# One scenario is marked KNOWN GAP: it describes behaviour the platform does not yet
+# have. (A second, SEC-01, was inverted on 2026-09-12 when ADR-0012 fixed it.) It is
+# written here because it is a genuine acceptance criterion, and the
 # executable test records the current answer while naming the defect, so the gap is
 # visible rather than forgotten.
 
@@ -48,10 +49,31 @@ Feature: Staff and customer boundaries
     When an anonymous visitor asks for a cart, an order list or the administration screens
     Then every one of those requests is refused
 
-  Scenario: KNOWN GAP - a shopper can grant themselves administrator rights at sign-up
-    When a shopper registers and asks for the administrator role
-    Then the shop should refuse
-    But today the shop grants it (SEC-01)
+  Scenario: A shopper cannot grant themselves administrator rights (SEC-01, fixed)
+    When a shopper registers
+    Then they are a plain customer
+    And they cannot reach the administration screens
+
+  Scenario: Not even an administrator can create another administrator
+    Given an administrator has signed in
+    When they try to create an account with the administrator role
+    Then the shop refuses
+    # Promoting an administrator is done in the identity provider's console, not the shop.
+
+  Scenario: An administrator creates a seller
+    Given an administrator has signed in
+    When they create a seller account
+    Then the account is created with a temporary password the seller must change
+
+  Scenario: A seller cannot create accounts
+    Given a seller has signed in
+    When they try to create an account
+    Then the shop refuses
+
+  Scenario: An administrator can still reach the seller screens
+    Given an administrator has signed in
+    When they open the seller product list
+    Then the list is shown
 
   Scenario: KNOWN GAP - any signed-in shopper can list every cart
     Given a customer has signed in
