@@ -91,6 +91,11 @@ originates in either submodule is mirrored and maintained here.
 | [user-guide/admin-guide.md](user-guide/admin-guide.md) | Running the shop: dashboard, categories, products, orders, accounts, and the security caveats |
 | [user-guide/faq.md](user-guide/faq.md) | Common questions by audience, with the known quirks explained |
 
+### Interview Preparation
+| Document | What it covers |
+|---|---|
+| [interview/oop-principles.md](interview/oop-principles.md) | The four OOP principles — encapsulation, abstraction, inheritance, polymorphism — each shown on real backend classes, with the weak spots worth admitting and ready-made interview answers |
+
 ### Development Log
 | Document | What it covers |
 |---|---|
