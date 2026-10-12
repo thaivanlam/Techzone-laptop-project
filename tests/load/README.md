@@ -44,6 +44,20 @@ as numbers, not as a directory of raw samples.
   COMPOSE_PROFILES=prod,seed,observability docker compose up -d
   ```
 
+  To bound the seven JVMs while keeping them representative, layer the
+  benchmark overlay on top. **Never measure under
+  `backend/docker-compose.dev.yml`** — it limits each service to one core and
+  C1-only compilation, so its latency figures describe the overlay, not the
+  platform:
+
+  ```bash
+  COMPOSE_PROFILES=prod,seed,observability \
+    docker compose -f docker-compose.yml -f backend/docker-compose.benchmark.yml up -d
+  ```
+
+  State which of the two a run used when recording it; see
+  [../../docs/operations/resource-limits.md](../../docs/operations/resource-limits.md).
+
 - **The load generator off the machine under test**, if the numbers are meant
   to be quoted anywhere. JMeter and eleven containers on one laptop compete
   for the same cores, and the p99 pays for it. A run from the same laptop is

@@ -80,6 +80,8 @@ originates in either submodule is mirrored and maintained here.
 | [operations/database-seeding.md](operations/database-seeding.md) | Entrypoint database creation, the one-shot catalogue seeder, `product_seq`, verification procedure |
 | [operations/configuration-reference.md](operations/configuration-reference.md) | Every environment variable, Config Server property and gateway rule, with when a change takes effect |
 | [operations/observability.md](operations/observability.md) | Metrics: what each service exposes, the Prometheus scrape and rules, the two Grafana dashboards, how to read a load run, and the security caveats |
+| [operations/resource-limits.md](operations/resource-limits.md) | The development and benchmark Compose overlays: JVM flags and the reason for each, memory and CPU ceilings, how to validate and measure them, the before/after procedure, recorded measurements, and the optional WSL2 cap |
+| [operations/resource-limits-measurements.md](operations/resource-limits-measurements.md) | What was measured with those overlays: memory per container, startup times, the load-stage comparison, the functional checks, and the conditions each figure was taken in |
 | [operations/troubleshooting-runbook.md](operations/troubleshooting-runbook.md) | Symptom index and step-by-step recovery runbooks, health checks, backup and restore, what to collect when escalating |
 
 ### End-User Guides
@@ -103,7 +105,7 @@ originates in either submodule is mirrored and maintained here.
 | [dev-log/2026-08.md](dev-log/2026-08.md) | August 2026: superproject setup, docs consolidation, Compose stack, Stripe build-time key fix, self-service password change, metrics and load testing |
 | [dev-log/sessions.md](dev-log/sessions.md) | Where the verbatim session records live (a private repository), what they hold, and how they are generated |
 | [dev-log/2026-09.md](dev-log/2026-09.md) | September 2026: session records generated from transcripts, widened to carry each turn's reply, then moved to a private repository |
-| [dev-log/2026-10.md](dev-log/2026-10.md) | October 2026: BUG-01 fixed — checkout reserves stock atomically and restores it when the order fails |
+| [dev-log/2026-10.md](dev-log/2026-10.md) | October 2026: BUG-01 fixed — checkout reserves stock atomically and restores it when the order fails; development and benchmark resource overlays for the JVM containers |
 
 ### Assets
 | Path | What it holds |
@@ -177,6 +179,8 @@ repository root, not in this folder.
 | `development/ide-debug-setup.md` | Written here — no upstream equivalent |
 | `operations/configuration-reference.md` | Written here — consolidates `.env.example`, `config-server/…/config/*.yml` and the gateway's `application.yaml` |
 | `operations/troubleshooting-runbook.md` | Written here — operator procedures for the Compose stack; no upstream equivalent |
+| `operations/resource-limits-measurements.md` | Written here — measurements taken on the reference laptop with those two overlays; no upstream equivalent |
+| `operations/resource-limits.md` | Written here — describes `backend/docker-compose.dev.yml` and `backend/docker-compose.benchmark.yml`, and records the measurements taken with them |
 | `user-guide/*.md` | Written here — end-user documentation for the delivered interface; no upstream equivalent |
 | `frontend/overview.md`, `frontend/design-decisions.md` | `frontend/README.md` |
 | `operations/docker-setup.md` | Written here — describes the superproject's own `docker-compose.yml` and `frontend/Dockerfile` |

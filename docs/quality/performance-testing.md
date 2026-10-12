@@ -145,9 +145,26 @@ observability profile:
 COMPOSE_PROFILES=prod,seed,observability docker compose up -d
 ```
 
+That command sets no memory or CPU limit, which is how every run before
+2026-10-12 was taken: each JVM saw the whole Docker VM, chose G1 and a heap
+ceiling of a quarter of its RAM. To bound the seven JVMs without changing how
+they behave, layer the benchmark overlay on top:
+
+```bash
+COMPOSE_PROFILES=prod,seed,observability \
+  docker compose -f docker-compose.yml -f backend/docker-compose.benchmark.yml up -d
+```
+
+Do not measure under `backend/docker-compose.dev.yml`. It exists to make the
+stack small — one core per service, C1-only compilation, SerialGC — and every
+one of those moves a latency figure. What each overlay sets, and the
+before-and-after procedure for comparing two configurations, is in
+[../operations/resource-limits.md](../operations/resource-limits.md).
+
 Every recorded run must state:
 
 - host CPU, RAM and whether the stack and the load generator shared it;
+- which resource overlay was applied — none, or `benchmark`;
 - the submodule commits the images were built from;
 - whether the catalogue was freshly seeded;
 - the JMeter version and the stage.
@@ -224,6 +241,34 @@ is the finding; the latency number is the symptom.
 ---
 
 ## 7. Recorded runs
+
+### 2026-10-12 — load stage, with and without the benchmark overlay
+
+A comparison, not a new baseline: the same `catalogue-browse` load stage run
+twice, once on the stack as it has always been run and once under
+`backend/docker-compose.benchmark.yml`, to check that bounding the seven JVMs
+does not itself move the numbers.
+
+**Environment.** Same laptop, generator on the same machine. Images built from
+backend `7909842`. Profile `prod` only — **no `observability` profile**, so this
+is not directly comparable with the runs below, which carried Prometheus and
+Grafana. 14 products; one `smoke` run before each as warm-up; figures from the
+last three quarters of each run.
+
+| | No overlay | Benchmark overlay |
+|---|---|---|
+| Samples / errors | 5 595 / 0 | 5 530 / 0 |
+| Throughput (plateau) | 19.6 req/s | 19.4 req/s |
+| All samplers p50 / p95 / p99 | 11 / 41 / 83 ms | 14 / 47 / 78 ms |
+| Catalogue page p95 | 53 ms | 64 ms |
+| Whole stack memory, mean | 3 694 MiB | 3 510 MiB |
+
+**Verdict.** No difference this run can tell from noise, and every §5
+threshold passed on both sides. One run each, and the JVMs under the overlay
+were younger; the stress stage was not run, so whether the overlay's CPU
+ceilings stay clear of the knee is still open. Per-container figures, GC
+pauses and the method are in
+[../operations/resource-limits-measurements.md](../operations/resource-limits-measurements.md).
 
 ### 2026-08-29 — first full-stack run, both plans, load stage
 

@@ -123,6 +123,7 @@ database problem.
 | The shop shows an error instead of an empty catalogue | Empty catalogue (`BUG-04`) — seed it, [database-seeding.md](database-seeding.md) |
 | Creating a product fails on a duplicate key | `product_seq` was not raised after seeding — [§8](#8-runbook--database-problems) |
 | Container name conflicts on `up` | Root and `backend/` Compose projects both running — bring one down |
+| A JVM container exited with code 137 | OOM-killed under a resource overlay — [resource-limits.md](resource-limits.md#7-when-a-container-is-oom-killed) |
 | Grafana panels empty, or a Prometheus target `DOWN` | [observability.md](observability.md#11-when-there-is-no-data) |
 
 ---
@@ -204,6 +205,7 @@ everything else is fine. The gateway answers `503` for one prefix.
    | Hikari pool start | MySQL not ready, or credentials wrong | [§8](#8-runbook--database-problems) |
    | Eureka registration | Discovery Service down | `docker compose restart discovery-service` |
    | Nothing — it is up but unregistered | Wrong profile: `dev` config pointing at `localhost` inside a container | Align `SPRING_PROFILES_ACTIVE` with `COMPOSE_PROFILES` |
+   | No error at all — the log just stops, exit code 137 | The kernel killed it for exceeding `mem_limit` (resource overlay only) | Confirm with `docker inspect -f '{{.State.OOMKilled}}' <service>`, then raise that service's limit — [resource-limits.md](resource-limits.md#7-when-a-container-is-oom-killed) |
 
 4. **Restart it.**
    ```bash

@@ -99,6 +99,18 @@ name and is the one fetched. In Mode 3 the services run on the host and both are
 loading the `dev` profile look for MySQL, RabbitMQ and Eureka on `localhost`
 inside their own container, find nothing, and fail at boot.
 
+**JVM flags and container limits are not `.env` variables.** They come from an
+optional Compose overlay, chosen on the command line with `-f`:
+
+| Set by | Key | Applies to | Effect |
+|---|---|---|---|
+| `backend/docker-compose.dev.yml`, `backend/docker-compose.benchmark.yml` | `JAVA_TOOL_OPTIONS` | the seven Spring Boot containers | JVM flags, read by the JVM itself at start. The Dockerfiles pass none, so this is the only source |
+| same | `mem_limit`, `memswap_limit` | same | Hard memory ceiling; the two are equal, so the container gets no swap and is OOM-killed if it outgrows the limit |
+| same | `cpus` | same | CPU ceiling. Also what the JVM reports as its processor count, which sizes GC and compiler thread pools |
+
+With no overlay none of the three is set. The values, and the reasoning behind
+each, are in [resource-limits.md](resource-limits.md).
+
 ---
 
 ## 3. `backend/.env` — Backend Only
@@ -394,6 +406,7 @@ be published; the rest belong inside the Docker network.
 | A `management.*` key for user, product, order or notification | Rebuild config-server, restart that service |
 | A `management.*` key for the gateway, config or discovery service | Rebuild and restart that service |
 | `SPRING_PROFILES_ACTIVE` | Restart everything; note the database changes with it |
+| A value in a resource overlay, or switching overlay | `docker compose -f docker-compose.yml -f backend/docker-compose.<dev\|benchmark>.yml up -d` — Compose recreates only the containers whose definition changed. A plain `restart` does **not** pick it up |
 | A gateway route or security rule | Rebuild and restart api-gateway |
 | `backend/init-db/*.sql` | Only ever runs on a **fresh** volume — `docker compose down -v` first |
 | `backend/keycloak/realm-techzone.json` | `--import-realm` **skips a realm that already exists**. Drop the `keycloak` database (or `down -v`) and restart Keycloak — or make the same change in the admin console. Editing the file alone changes nothing on a running stack |
@@ -418,6 +431,8 @@ be published; the rest belong inside the Docker network.
 | No email at all | `MAIL_PASSWORD` is not a valid Gmail **app** password, or RabbitMQ is unreachable |
 | A service exits at boot with a config error | Config Server was not healthy yet, or its URL is unreachable from the container |
 | Products vanished after a restart | The profile changed, so the service is looking at a different database |
+| A JVM container exits with code 137, or keeps restarting | Under a resource overlay: it outgrew `mem_limit`. `docker inspect -f '{{.State.OOMKilled}}' <name>` confirms it — [resource-limits.md](resource-limits.md#7-when-a-container-is-oom-killed) |
+| Limits "disappeared" after an `up -d` | The command was run without the `-f` pair, so Compose recreated the containers from the base file alone |
 
 Recovery steps for each of these are in
 [troubleshooting-runbook.md](troubleshooting-runbook.md).

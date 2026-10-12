@@ -137,7 +137,7 @@ All of it is environment variables, read in [`lib/config.js`](lib/config.js):
 | `KEYCLOAK_TESTS_CLIENT_ID` / `KEYCLOAK_TESTS_CLIENT_SECRET` | `techzone-tests` / development default | Password-grant client the suites sign in with |
 | `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET` | `techzone-admin-api` / development default | Used only to create throw-away accounts in the realm |
 | `RUN_DESTRUCTIVE` | unset | `1` enables the scenarios that place orders |
-| `REQUEST_TIMEOUT_MS` | `15000` | Per-request timeout |
+| `REQUEST_TIMEOUT_MS` | `15000` | Per-request timeout. Raise it to `30000` when the stack runs under `backend/docker-compose.dev.yml` and the order database is large: the seller order list (`BUG-17`) then takes about 17 s — see [resource-limits-measurements.md](../docs/operations/resource-limits-measurements.md) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin@example.com` / `adminPass` | Seeded administrator |
 | `SELLER_USERNAME` / `SELLER_PASSWORD` | `seller1@example.com` / `password2` | Seeded seller |
 | `CUSTOMER_USERNAME` / `CUSTOMER_PASSWORD` | `user1@example.com` / `password1` | Seeded customer |

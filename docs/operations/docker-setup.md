@@ -35,6 +35,33 @@ include:
 - `env_file: .env` points at the `.env` **next to the root file**, so the whole
   stack — backend secrets included — is configured from that one file.
 
+### Resource overlays
+
+Neither file above sets a memory or CPU limit, and no Dockerfile passes a JVM
+flag. Two optional overlay files in `backend/` add both, for the seven Spring
+Boot containers only:
+
+| Overlay | For | Adds |
+|---|---|---|
+| [`backend/docker-compose.dev.yml`](../../backend/docker-compose.dev.yml) | Everyday development and functional testing | Small ceilings, one core each, SerialGC, C1-only compilation |
+| [`backend/docker-compose.benchmark.yml`](../../backend/docker-compose.benchmark.yml) | Load runs | Larger ceilings, full JIT, G1 pinned so the collector matches the recorded runs |
+
+They are layered with `-f`, after the base file, from either entry point:
+
+```bash
+# repository root — full stack, development footprint
+docker compose -f docker-compose.yml -f backend/docker-compose.dev.yml up -d
+
+# backend/ — Modes 2 and 3
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+An overlay only ever adds `JAVA_TOOL_OPTIONS`, `mem_limit`, `memswap_limit` and
+`cpus`; Compose merges `environment` key by key, so every variable the base file
+sets survives. Leaving the overlay off gives exactly the stack as it was. The
+flags, the limits, how they were arrived at and what was measured are in
+[resource-limits.md](resource-limits.md).
+
 ### The two projects are mutually exclusive
 
 The root file sets the Compose project name to `techzone`; running from
@@ -251,6 +278,7 @@ is absent and returns `502` for API paths until it appears.
 | Everything | `docker compose up --build` |
 | Load the demo catalogue | `docker compose --profile seed up db-seed` |
 | Start metrics alongside a running stack | `docker compose --profile observability up -d` |
+| Switch resource overlay (none / dev / benchmark) | Re-run `up -d` with the other `-f` pair — Compose recreates the seven JVM containers and leaves the rest alone. See [resource-limits.md](resource-limits.md) |
 | Reload the Prometheus scrape config | `curl -X POST http://localhost:9090/-/reload` |
 | Reset the database | `docker compose down -v` (drops `techzone_mysql_data`, so `init-db/` re-runs) |
 
@@ -261,6 +289,7 @@ is absent and returns `502` for API paths until it appears.
 - [running-locally.md](running-locally.md) — startup procedure and environment variables
 - [database-seeding.md](database-seeding.md) — database creation and the catalogue seeder
 - [observability.md](observability.md) — the `observability` profile, what it scrapes, and the dashboards it serves
+- [resource-limits.md](resource-limits.md) — the development and benchmark overlays: JVM flags, memory and CPU ceilings, measurements
 - [../frontend/overview.md](../frontend/overview.md) — SPA stack and structure
 - [../backend/services/api-gateway.md](../backend/services/api-gateway.md) — routes, CORS, JWT enforcement
 - [../architecture/system-overview.md](../architecture/system-overview.md) — services and request flow

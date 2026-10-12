@@ -87,6 +87,7 @@ documentation from **both** submodules.
 | Frontend trade-offs | [docs/frontend/design-decisions.md](docs/frontend/design-decisions.md) |
 | Startup, env vars, seeded users | [docs/operations/running-locally.md](docs/operations/running-locally.md) |
 | Every config key, and when a change takes effect | [docs/operations/configuration-reference.md](docs/operations/configuration-reference.md) |
+| Memory and CPU limits, JVM flags, the dev and benchmark Compose overlays | [docs/operations/resource-limits.md](docs/operations/resource-limits.md) |
 | Diagnosing and recovering a broken stack | [docs/operations/troubleshooting-runbook.md](docs/operations/troubleshooting-runbook.md) |
 | Guides for customers, sellers, admins, installers | [docs/user-guide/](docs/user-guide/) |
 | How each change came about | [docs/dev-log/](docs/dev-log) |

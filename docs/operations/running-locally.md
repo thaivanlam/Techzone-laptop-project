@@ -56,6 +56,17 @@ more containers, Prometheus and Grafana, and nothing else changes:
 COMPOSE_PROFILES=prod,observability docker compose up --build
 ```
 
+On a laptop where memory is tight, layer the development resource overlay on
+top — it caps the seven JVM containers and changes nothing else. Without it
+each JVM sizes its heap from the whole Docker VM:
+
+```bash
+docker compose -f docker-compose.yml -f backend/docker-compose.dev.yml up -d
+```
+
+For a load run, use `backend/docker-compose.benchmark.yml` in its place. Both
+are described in [resource-limits.md](resource-limits.md).
+
 Open http://localhost:5173. The SPA is served by nginx, which reverse-proxies
 `/user-manager`, `/product-manager`, and `/order-manager` to `api-gateway:8080`
 inside the Docker network — the browser only ever talks to one origin for the
@@ -160,6 +171,8 @@ Step-by-step VS Code setup (extensions, JDK runtime mapping, a ready-to-copy
 ```bash
 cd backend
 docker-compose up -d           # mysql, rabbitmq, keycloak, config-server, discovery-service
+# or, with the development memory ceilings on the two JVM containers:
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # then, per service, in its own terminal:
 cd user-service && ./mvnw spring-boot:run
@@ -276,6 +289,7 @@ complete verification procedure.
 | API calls go to `undefined/user-manager/...` | The bundle was built without `VITE_BACK_END_URL` defined; rebuild the frontend image |
 | Stripe redirect lands on the wrong port | `FRONTEND_URL` was changed without rebuilding the frontend image (it is baked in as `VITE_FRONTEND_URL`) |
 | A service exits at startup with a config error | Config Server not healthy yet, or `CONFIG_SERVER_URL` unreachable from the container |
+| A JVM container restarts or exits with code 137 under a resource overlay | It outgrew its `mem_limit` and was OOM-killed — `docker inspect -f '{{.State.OOMKilled}}' <name>`. See [resource-limits.md](resource-limits.md#7-when-a-container-is-oom-killed) |
 | Gateway returns 503 for a route | The target service has not registered with Eureka yet — check http://localhost:8761 |
 | Every authenticated call returns 401 `Invalid or expired token` | The `iss` claim does not match `KEYCLOAK_ISSUER_URI`. Most often the issuer and JWKS URLs were set to the same value, or the SPA reached Keycloak under a different host name than `KEYCLOAK_PUBLIC_URL` |
 | "Sign in" redirects to a page that does not load | Keycloak is not up, or `VITE_KEYCLOAK_URL` is not reachable from the browser. `docker compose ps keycloak`; it takes the longest of any container to become healthy |

@@ -23,6 +23,23 @@ No version has been tagged yet. Everything below ships in the first release.
 
 ### Added
 
+- **Resource overlays for the seven backend JVM containers.** Two optional
+  Compose files cap their memory and CPU and set their JVM flags; without one,
+  the stack runs exactly as before, with no limits.
+  `backend/docker-compose.dev.yml` makes the stack small for everyday work — in
+  the first measurement the seven services went from about 2.4 GiB to
+  1.5–1.6 GiB — and must not be used for load runs, where
+  `backend/docker-compose.benchmark.yml` bounds the services without changing
+  how they perform:
+
+  ```bash
+  docker compose -f docker-compose.yml -f backend/docker-compose.dev.yml up -d
+  ```
+
+  Under the development overlay CPU-heavy requests are slower; run the live
+  test suites with `REQUEST_TIMEOUT_MS=30000`. See
+  [`docs/operations/resource-limits.md`](docs/operations/resource-limits.md).
+
 - **Sign-in through Keycloak.** Signing in, registering and signing out now
   happen on the TechZone account service — a Keycloak 26 container on port
   **8090**, with the realm imported from `backend/keycloak/realm-techzone.json` —
