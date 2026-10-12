@@ -331,9 +331,20 @@ the broker.
 | The Stripe redirect lands on the wrong port | `FRONTEND_URL` changed without rebuilding the frontend | Rebuild the frontend image |
 | "Cart is empty" on a visible basket | The session expired between loading the page and paying | Sign in again |
 
-**After any failed checkout, check stock.** A multi-line order that failed part
-way leaves the earlier lines' stock already reduced (`BUG-01`). Compare the
-product quantities against what was actually ordered, and correct them by hand.
+**After a failed checkout, stock normally needs no attention.** Since 2026-10-12
+(`BUG-01`) the stock for an order is reserved in one all-or-nothing call and
+given back if the order then fails. The exception is a failure of the give-back
+itself — product-service unreachable at that moment. Search the order-service
+log for it:
+
+```bash
+docker compose logs order-service | grep "stock could not be restored"
+```
+
+Each hit lists the `productId` / `quantity` pairs that were reserved and never
+returned. Add those quantities back to the products by hand. The same applies if
+order-service was killed in the middle of a checkout: compare product quantities
+against the orders actually recorded.
 
 ---
 

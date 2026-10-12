@@ -103,6 +103,7 @@ originates in either submodule is mirrored and maintained here.
 | [dev-log/2026-08.md](dev-log/2026-08.md) | August 2026: superproject setup, docs consolidation, Compose stack, Stripe build-time key fix, self-service password change, metrics and load testing |
 | [dev-log/sessions.md](dev-log/sessions.md) | Where the verbatim session records live (a private repository), what they hold, and how they are generated |
 | [dev-log/2026-09.md](dev-log/2026-09.md) | September 2026: session records generated from transcripts, widened to carry each turn's reply, then moved to a private repository |
+| [dev-log/2026-10.md](dev-log/2026-10.md) | October 2026: BUG-01 fixed — checkout reserves stock atomically and restores it when the order fails |
 
 ### Assets
 | Path | What it holds |

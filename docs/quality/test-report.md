@@ -324,7 +324,7 @@ happened.
 
 | Defect | Pinned by | What is pinned |
 |---|---|---|
-| `BUG-01` | `OrderServiceImplTest` | A checkout failing on its second line leaves the first line's stock taken |
+| ~~`BUG-01`~~ | `OrderServiceImplTest` | ~~A checkout failing on its second line leaves the first line's stock taken~~ — fixed 2026-10-12, after this run; the test was inverted into `refusedReservationWritesNothing` |
 | `BUG-04` | `ProductServiceImplTest` · `catalogue.test.js` | A search matching nothing raises an error instead of returning an empty page |
 | `BUG-06` | `EmailServiceImplTest` | A failed send returns normally and the message is lost |
 | `BUG-07` | `CartServiceImplTest` | The stored cart total drifts from the sum of its lines after a price change |
@@ -402,13 +402,14 @@ Against the exit criteria in
 |---|---|---|
 | 1 | All automated suites pass against a freshly built stack | ⚠️ **Nearly** — 342 of 350 green; the 8 destructive cases have never run |
 | 2 | The UAT checklist walked and signed off | ❌ Not recorded |
-| 3 | No open Critical defect | ❌ **Two open** — `SEC-03`, `BUG-01`. `SEC-01`, `SEC-02` and `SEC-04` closed 2026-09-12 by ADR-0012 |
+| 3 | No open Critical defect | ❌ **One open** — `SEC-03`. `BUG-01` was fixed on 2026-10-12, verified by the unit and integration suites only, not yet by a run against a live stack. `SEC-01`, `SEC-02` and `SEC-04` closed 2026-09-12 by ADR-0012 |
 | 4 | This report regenerated | ✅ |
 | 5 | `CHANGELOG.md` updated for the release | — no version tagged yet |
 
 **Verdict: not releasable, and the blocker is not test coverage.** Criterion 3
-fails on its own: payment success is asserted by the browser (`SEC-03`) and a
-failed multi-line order leaks stock (`BUG-01`). Moving authentication to Keycloak
+fails on its own: payment success is asserted by the browser (`SEC-03`). (At the
+time of this run a failed multi-line order also leaked stock — `BUG-01`, fixed
+2026-10-12.) Moving authentication to Keycloak
 removed three Critical findings but no authorization finding — SEC-05, SEC-07,
 SEC-08 and SEC-09 are all still open. Criterion 1 also regressed to unverified
 after Run E, until the rewritten system and acceptance suites run live. The platform is a sound demonstration of the architecture and is

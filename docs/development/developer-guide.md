@@ -258,12 +258,14 @@ incremental path exists only for speed that this system does not need.
 
 ### Order placement
 
-`OrderServiceImpl.placeOrder` in order: load cart → persist `Order` and
-`Payment` → for each line, call product-service `reduce-stock` and persist an
-`OrderItem` with its snapshot → empty the cart → publish to RabbitMQ. There is no
-transaction across the two databases, so a failure inside the loop leaves earlier
-stock reductions applied (`BUG-01`). Anything added to this method should be
-placed with that in mind: the later it runs, the less it can corrupt.
+`OrderServiceImpl.placeOrder` in order: load cart → reserve the stock for every
+line in one product-service `reduce-stock` call → persist `Order`, `Payment` and
+an `OrderItem` per line with its snapshot → empty the cart → flush → publish to
+RabbitMQ. There is no transaction across the two databases, so everything after
+the reservation runs inside a `try` whose `catch` calls `restore-stock` and
+rethrows (the fix for `BUG-01`). Anything added to this method that can fail
+belongs **inside that `try`**; anything that must not be undone by a later
+failure does not belong in this method at all.
 
 ---
 

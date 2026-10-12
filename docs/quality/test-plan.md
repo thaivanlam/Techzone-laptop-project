@@ -190,7 +190,7 @@ Spring's `Binder` for configuration.
 |---|---|
 | Controller → HTTP | URL mapping, query-parameter defaulting, JSON shape, and the `@RestControllerAdvice` that turns domain exceptions into 400/404 |
 | Repository → Hibernate → SQL | Derived queries, hand-written JPQL, paging, cascades, and a `Specification` filter as real SQL |
-| order-service → product-service | URL assembly, base-URL normalisation, deserialisation, the reduce-stock body shape, and how remote failures surface |
+| order-service → product-service | URL assembly, base-URL normalisation, deserialisation, the batch reduce-stock and restore-stock body shapes, and how remote failures surface |
 | Resource-server filter chains | Each service's real `SecurityConfig` with a mocked `JwtDecoder` and `SecurityMockMvcRequestPostProcessors.jwt()`: 401 without a token, 401 for a forged one, 403 for a missing role, the old cookie ignored, composite admin roles — `ProductServiceSecurityTest`, `OrderServiceSecurityTest`, `AuthControllerIntegrationTest` |
 | The gateway security chain | `GatewayBearerTokenSecurityTest` boots the gateway with a mocked `ReactiveJwtDecoder` and drives the full truth table through `WebTestClient` |
 | The deployed gateway policy | The shipped `application.yaml`, bound and asserted: no admin route on the public list, every mapping names a role |
@@ -524,6 +524,13 @@ example of rule 3 in both of its forms:
 | `SEC-01` | `AuthServiceImplTest`, `staff.test.js` | Inverted: `adminRoleIsNotGrantable`, and the two SEC-01 scenarios in `staff.test.js` |
 | `BUG-03`, `SEC-13` | `JwtUtilsTest` | Deleted with `JwtUtils`; the cookie no longer exists. Revocation is asserted by "signing out ends the session everywhere" in `account.test.js` |
 | `SEC-10` | `AuthenticationFilterTest` | Still open — its characterisation moved to `GatewayBearerTokenSecurityTest.internalRouteIsPublic` and `ProductServiceSecurityTest.internalApiIsUnauthenticated` |
+
+**`BUG-01`** (2026-10-12) is the plain form of the same rule.
+`OrderServiceImplTest.partialFailureLeavesStockTaken` asserted that the first
+line's stock stayed taken; it became `refusedReservationWritesNothing`, which
+asserts one reservation call, no restore, no order and an untouched cart. Four
+new cases beside it cover the compensation path, and the atomic decrement itself
+is asserted against H2 in `ProductRepositoryIntegrationTest`.
 
 Which test pins which defect is tabulated in
 [test-report.md](test-report.md#6-known-wrong-behaviour-under-test). The count

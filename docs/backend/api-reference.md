@@ -120,7 +120,9 @@ against. Passwords are changed in Keycloak's account console,
 | GET | `/product-manager/api/seller/products` | SELLER | List products, seller view (paginated) |
 | GET | `/product-manager/api/admin/app/analytics` | ADMIN | Product analytics data |
 | GET | `/product-manager/api/internal/products/{productId}` | Internal | Get a product — used by Order Service for stock validation |
-| POST | `/product-manager/api/internal/products/{productId}/reduce-stock` | Internal | Decrement product stock (body: `quantity`) |
+| POST | `/product-manager/api/internal/products/{productId}/reduce-stock` | Internal | Decrement one product's stock (body: `quantity`). No longer called by checkout |
+| POST | `/product-manager/api/internal/products/reduce-stock` | Internal | Reserve stock for a whole order atomically — all lines or none (body: `items: [{productId, quantity}]`). `400` if any line is short |
+| POST | `/product-manager/api/internal/products/restore-stock` | Internal | Give reserved stock back after a failed checkout (same body) |
 
 ### Categories — `CategoryController`
 

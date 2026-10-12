@@ -155,7 +155,7 @@ Statuses naming a `BUG-` or `SEC-` id resolve in
 | **FR-PRD-7** | A seller or administrator can upload or replace a product image; a product with no upload shows a placeholder. | Must | Defect — `BUG-08`: a filename with no extension crashes the upload |
 | **FR-PRD-8** | A seller may act only on products they own; an administrator may act on any product. | Must | Open — `SEC-05`: role is checked, ownership is not |
 | **FR-PRD-9** | A seller sees only their own products in the management list. | Must | Done |
-| **FR-PRD-10** | Product stock decreases when an order consumes it, and can never go below zero. | Must | Defect — `BUG-02` under concurrency, `BUG-01` on a partly failed order |
+| **FR-PRD-10** | Product stock decreases when an order consumes it, and can never go below zero. | Must | Met at checkout since 2026-10-12 (`BUG-01` fixed; checkout uses an atomic decrement). `BUG-02` remains in the unused single-line stock endpoint |
 
 ### 5.5 Specifications — `SPC`
 
@@ -202,7 +202,7 @@ Statuses naming a `BUG-` or `SEC-` id resolve in
 |---|---|---|---|
 | **FR-ORD-1** | A customer places an order from their cart, choosing a delivery address and a payment method. | Must | Done |
 | **FR-ORD-2** | The order copies every cart line with its price snapshot, and records the order date and total. | Must | Done |
-| **FR-ORD-3** | Placing an order reduces the stock of every product in it. | Must | Defect — `BUG-01`: a failure part-way leaves earlier reductions applied |
+| **FR-ORD-3** | Placing an order reduces the stock of every product in it. | Must | Implemented — `BUG-01` fixed 2026-10-12: every line is reduced in one atomic call, or none is |
 | **FR-ORD-4** | An order cannot be placed from an empty cart. | Must | Done |
 | **FR-ORD-5** | A customer can list their own orders, paginated. | Must | Done |
 | **FR-ORD-6** | A customer can cancel an order that has not shipped. | Should | Defect — `SEC-08` / `BUG-18`: any signed-in user can set any order to any status |
@@ -292,7 +292,7 @@ gateway. See [../backend/api-reference.md](../backend/api-reference.md).
 | ID | Requirement | Target | Status |
 |---|---|---|---|
 | **NFR-REL-1** | A briefly unavailable dependency degrades a feature rather than failing unrelated requests | circuit breaker with fallback | Open — no circuit breaker |
-| **NFR-REL-2** | An order is either fully placed or fully rejected — never half-applied | atomic across stock, order and payment | Open — `BUG-01` |
+| **NFR-REL-2** | An order is either fully placed or fully rejected — never half-applied | atomic across stock, order and payment | Partly met — `BUG-01` fixed 2026-10-12 by reservation plus compensation; a crash between reserving stock and committing the order is still not covered, and payment is still `SEC-03` |
 | **NFR-REL-3** | Services start in dependency order and serve traffic only when ready | Compose health checks gate dependants | Done |
 | **NFR-REL-4** | A message accepted by the broker is eventually delivered or recorded as failed | ack, retry, dead-letter | Open — `BUG-06` |
 

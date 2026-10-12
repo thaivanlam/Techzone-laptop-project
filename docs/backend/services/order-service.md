@@ -90,7 +90,7 @@ talks to a third-party API.
 
 | Dependency | Purpose | Failure behaviour |
 |---|---|---|
-| Product Service `/api/internal/**` | Fetch product, reduce stock | `RestTemplate` throws; surfaces as an unhandled 500. No circuit breaker, no fallback |
+| Product Service `/api/internal/**` | Fetch product, reserve and restore stock | `RestTemplate` throws; surfaces as an unhandled 500. No circuit breaker, no fallback |
 | MySQL | Persistence | Startup fails |
 | RabbitMQ | Order confirmation email | `convertAndSend` throws inside the order transaction |
 | Stripe API | `PaymentIntent` creation | `StripeException` propagates out of the controller |
@@ -109,10 +109,12 @@ plays no part in this call.
 com.ecommerce.order_service
 ├── OrderServiceApplication.java
 ├── client/
-│   ├── ProductServiceClient.java              # interface: getProductById, reduceProductQuantity
+│   ├── ProductServiceClient.java              # interface: getProductById, reduceProductQuantities,
+│   │                                          #            restoreProductQuantities
 │   └── RestTemplateProductServiceClient.java  # RestTemplate implementation
 ├── clientpayload/
-│   └── ProductDTO.java                        # Product Service's response shape
+│   ├── ProductDTO.java                        # Product Service's response shape
+│   └── StockLine.java                         # productId + quantity, one per cart line
 ├── config/
 │   ├── AppConfig.java                         # ModelMapper + RestTemplate beans
 │   ├── AppConstants.java                      # pagination defaults
@@ -431,34 +433,52 @@ Body: OrderRequestDTO { addressId, pgName, pgPaymentId, pgStatus, pgResponseMess
  2. cart  ← cartRepository.findCartByEmail(email)
        null    → 404 ResourceNotFoundException
        empty   → 400 APIException("Cart is empty")
- 3. Order:  email, orderDate = LocalDate.now(), totalAmount = cart.totalPrice,
+ 3. productServiceClient.reduceProductQuantities(all cart lines)         ← remote, ONE call
+       refused → nothing was taken, nothing has been written; the error propagates
+ --- everything from here to step 10 runs inside a try; any RuntimeException ---
+ --- calls productServiceClient.restoreProductQuantities(same lines), rethrows ---
+ 4. Order:  email, orderDate = LocalDate.now(), totalAmount = cart.totalPrice,
             orderStatus = "Accepted", addressId
- 4. Payment: paymentMethod (path variable) + the four pg* fields from the body
+ 5. Payment: paymentMethod (path variable) + the four pg* fields from the body
             linked both ways, cascaded on save
- 5. orderRepository.save(order)
- 6. for each cart line → OrderItem carrying the SAME ProductSnapshot instance,
+ 6. orderRepository.save(order)
+ 7. for each cart line → OrderItem carrying the SAME ProductSnapshot instance,
             quantity, discount, orderedProductPrice = line.productPrice
     orderItemRepository.saveAll(...)
- 7. for each cart line:
-       productServiceClient.reduceProductQuantity(productId, quantity)   ← remote
-       cartService.deleteProductFromCart(cartId, productId)
- 8. map to OrderDTO
- 9. notificationPublisher.sendEmailNotification(EmailDetails{...})       ← remote
-10. return 201 with OrderDTO
+ 8. for each cart line: cartService.deleteProductFromCart(cartId, productId)
+    orderRepository.flush()        ← constraint failures surface here, not at commit
+ 9. map to OrderDTO
+10. notificationPublisher.sendEmailNotification(EmailDetails{...})       ← remote
+11. return 201 with OrderDTO
 ```
 
-### What is not checked at step 7
+### Stock: reserved first, restored on failure
 
-Stock was validated when the item entered the cart, possibly days earlier. It is
-**not** re-validated at placement. Product Service's `reduceProductQuantity`
-does check and throws `APIException("Insufficient product quantity")` — but by
-then the order row already exists and earlier lines have already been decremented.
+Stock lives in Product Service's database, so no transaction can cover both it
+and the order. Until 2026-10-12 `placeOrder` decremented it one line at a time
+*after* writing the order, and a failure on a later line left the earlier lines
+taken with no order to account for them (`BUG-01`). It now does two things:
 
-The local transaction rolls the order back; the remote decrements do not roll
-back. A multi-line order that fails on its third line leaves the first two
-products permanently short in the catalogue with no order to account for them.
-This is the classic distributed-transaction gap, and the fix is a saga with
-compensating actions or an outbox — see [§14](#14-design-notes--known-trade-offs).
+- **Reserves the whole cart in one call, before writing anything.** Product
+  Service applies the lines in a single local transaction, so the reservation is
+  all-or-nothing on the side that owns the data. This is also where stock is
+  re-validated — cart-time validation may be days old.
+- **Compensates.** If anything after the reservation throws — a persist failure,
+  the flush, the RabbitMQ publish — the `catch` calls `restore-stock` with the
+  same lines and rethrows, so the local rollback and the remote stock agree.
+
+If the restore call itself fails, the original exception still propagates (the
+restore failure is attached as suppressed) and one ERROR line records the lines
+to put back by hand: `Checkout failed and its stock could not be restored`.
+
+Three windows remain, all narrower than the one closed: order-service dying
+between the reservation and the commit, a reservation whose HTTP response is
+lost, and a commit that fails after the flush succeeded. Each leaves stock
+reserved with no order. Closing them needs an outbox or an expiring
+reservation — see [§14](#14-design-notes--known-trade-offs).
+
+A refused reservation reaches the caller as an unhandled
+`HttpClientErrorException` — a 500, not a 400 ([§12](#12-exception-handling)).
 
 ### Seller order listing
 
@@ -582,10 +602,11 @@ with matching field names; the JSON converter bridges them.
 ### Publishing inside the transaction
 
 `sendEmailNotification` is called at the end of `placeOrder`, inside the
-`@Transactional` boundary and after the remote stock reductions. If RabbitMQ is
-unreachable, `convertAndSend` throws, the order transaction rolls back — but the
-stock decrements do not. Publishing after commit (or through an outbox table)
-would decouple the two.
+`@Transactional` boundary and after the remote stock reservation. If RabbitMQ is
+unreachable, `convertAndSend` throws and the order transaction rolls back. Since
+2026-10-12 the reserved stock is restored in that case, so a broker outage costs
+the order but no longer costs inventory. Publishing after commit (or through an
+outbox table) would stop it costing the order too.
 
 ---
 
@@ -702,8 +723,8 @@ queue:
 | Exception | Result |
 |---|---|
 | `StripeException` | Spring Boot default 500 |
-| `RestClientException` from Product Service | Default 500 |
-| `AmqpException` from RabbitMQ | Default 500, order rolled back |
+| `RestClientException` from Product Service | Default 500 — including a refused stock reservation, which Product Service answers with 400 |
+| `AmqpException` from RabbitMQ | Default 500, order rolled back, reserved stock restored |
 | `EmptyArrayException` | Declared but never thrown or mapped |
 
 So every cross-service failure surfaces as an untyped 500 with no `APIResponse`
@@ -741,9 +762,11 @@ receives `SPRING_PROFILES_ACTIVE`, `SPRING_CONFIG_IMPORT`, `CONFIG_SERVER_URL`,
 
 ### Tests
 
-`OrderServiceApplicationTests` is a context-load smoke test only. Cart mutation,
-order placement, stock reduction, seller filtering, and Stripe integration are
-all untested.
+`OrderServiceApplicationTests` is a context-load smoke test. Cart mutation, order
+placement and the stock reservation and its compensation are covered by
+`CartServiceImplTest`, `OrderServiceImplTest` and
+`ProductServiceClientIntegrationTest`; Stripe integration is untested. The map
+is in [../../quality/test-plan.md](../../quality/test-plan.md).
 
 ---
 
@@ -751,9 +774,12 @@ all untested.
 
 ### 1. Stock reduction is not transactional across services
 
-Covered in [§7](#7-order-placement-flow). Ranked first because it can corrupt
-catalogue inventory with no record of why. Minimal fix: reserve stock in a single
-call before creating the order, and compensate on failure.
+Covered in [§7](#7-order-placement-flow). The minimal fix was applied on
+2026-10-12 (`BUG-01`): stock is reserved in a single atomic call before the order
+is created, and restored if the order then fails. It is compensation, not a
+distributed transaction — a crash between the reservation and the commit, or a
+restore call that fails, still leaves stock reserved with no order. An outbox,
+or a reservation that expires unless confirmed, would close that.
 
 ### 2. Payment status is client-asserted
 

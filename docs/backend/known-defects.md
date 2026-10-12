@@ -21,6 +21,11 @@ BUG-03, BUG-19 and OPS-11 together, by deleting the code they lived in rather
 than patching it. **It closed no authorization defect** — SEC-05's ownership half
 and SEC-07 to SEC-12 are exactly as open as they were, and the ADR says so.
 
+On 2026-10-12, BUG-01 was fixed: checkout reserves the whole cart's stock in one
+atomic call and gives it back if the order then fails. The same change closed
+the lost-inventory half of BUG-11 and BUG-22 and took checkout off the code path
+that carries BUG-02 and BUG-09; those four entries say what is left of each.
+
 ---
 
 ## Table of Contents
@@ -73,7 +78,7 @@ the project is demonstrated or extended.
 | [SEC-11](#sec-11--the-notification-endpoint-can-send-arbitrary-mail) | High | Unauthenticated send from the project's Gmail account | notification-service |
 | [SEC-12](#sec-12--the-eureka-registry-is-public-and-writable) | Medium | Registry enumerable and injectable through the gateway | discovery-service, gateway |
 | [SEC-13](#sec-13--jwt-cookie-flags-and-the-absence-of-revocation) | ~~Medium~~ | **Fixed 2026-09-12 (ADR-0012)** — `httpOnly=false`, `secure=false`, no `SameSite`, no revocation | user-service |
-| [BUG-01](#bug-01--a-failed-multi-line-order-leaves-stock-permanently-decremented) | Critical | Cross-service writes are not compensated on rollback | order-service |
+| [BUG-01](#bug-01--a-failed-multi-line-order-leaves-stock-permanently-decremented) | ~~Critical~~ | **Fixed 2026-10-12** — cross-service stock writes were not compensated on rollback | order-service, product-service |
 | [BUG-02](#bug-02--concurrent-checkout-oversells-the-last-unit) | High | Read-modify-write with no locking | product-service |
 | [BUG-03](#bug-03--the-auth-cookie-outlives-the-token-by-23-hours) | ~~High~~ | **Fixed 2026-09-12 (ADR-0012)** — `maxAge` 24 h vs. a 50-minute token | user-service |
 | [BUG-04](#bug-04--an-empty-search-result-is-returned-as-400-bad-request) | High | "No matches" is indistinguishable from a bad request | product-service |
@@ -272,6 +277,45 @@ key removes the shared-secret problem entirely — the trade-off is recorded in
 ---
 
 ### BUG-01 — A failed multi-line order leaves stock permanently decremented
+
+> **Fixed on 2026-10-12**, with both options from the "Fix" paragraph below
+> rather than one of them. Kept here for the reproduction record.
+>
+> 1. **Single-call reservation.** Product Service gained
+>    `POST /api/internal/products/reduce-stock`, which takes every line of the
+>    order (`{"items":[{"productId","quantity"}]}`) and applies them in one local
+>    transaction. Each line is a conditional
+>    `UPDATE ... SET quantity = quantity - :q WHERE quantity >= :q`; a line that
+>    changes no row throws, and the rollback undoes the lines before it. A short
+>    line therefore means **no** line was taken. This is also the re-validation
+>    of stock at checkout that the last paragraph below asks for.
+> 2. **Compensation.** `placeOrder` now reserves the stock *before* it writes
+>    anything, and wraps everything after the reservation — order, payment, order
+>    items, cart clearing, an explicit flush, the RabbitMQ publish — in a
+>    `try`/`catch` that calls `POST /api/internal/products/restore-stock` with the
+>    same lines and rethrows.
+>
+> **What is still not covered**, because the two services still do not share a
+> transaction: an order-service crash, or a reservation whose response is lost,
+> between the reservation and the commit; a commit that fails after the flush
+> succeeded; and a restore call that itself fails. The last is logged at ERROR
+> with the lines to put back (`Checkout failed and its stock could not be
+> restored`) and attached to the original exception as suppressed. Closing those
+> needs an outbox or a reservation with an expiry, not another `catch`.
+>
+> Also unchanged: a refused reservation still reaches the browser as an untyped
+> 500 rather than a 400 naming the product
+> ([BUG-10](#bug-10--cross-service-exceptions-surface-as-untyped-500s)).
+>
+> **Regression tests:** `OrderServiceImplTest` — `refusedReservationWritesNothing`
+> (the inverted characterisation test), `reservesStockBeforeWritingTheOrder`,
+> `failureAfterReservationRestoresStock`, `failedNotificationRestoresStock`,
+> `failedRestoreKeepsTheOriginalError`; `ProductServiceImplTest` — the
+> `reduceProductQuantities` and `restoreProductQuantities` groups;
+> `ProductRepositoryIntegrationTest` — the six `reduceStock` / `restoreStock`
+> cases against H2; `ProductControllerIntegrationTest` and
+> `ProductServiceClientIntegrationTest` for the HTTP contract on each side. No
+> system test yet drives a failing multi-line checkout against a live stack.
 
 **Location:** `backend/order-service/.../service/OrderServiceImpl.java:57-110`
 
@@ -489,6 +533,11 @@ curl -X POST http://localhost:8081/api/internal/products/1/reduce-stock \
 The same applies to the other business services, whose ports are published for
 dev convenience.
 
+Since 2026-10-12 the same is true of the two batch endpoints added for BUG-01,
+`POST /api/internal/products/reduce-stock` and `.../restore-stock`. The second
+one widens this finding slightly: stock can now be *raised* from the host as
+well as lowered.
+
 **Impact:** Arbitrary inventory manipulation without a token.
 
 **Fix:** Stop publishing business-service ports in the `prod` profile — only
@@ -538,6 +587,13 @@ no `@Transactional` on the method.
 **Reproduction:** Two checkouts for the last unit arriving together. Both read
 `quantity = 1`, both pass the guard, both write `quantity = 0`. Two units are
 sold; one existed.
+
+**Narrowed on 2026-10-12.** Checkout no longer calls this method: the BUG-01 fix
+moved it to the batch endpoint, whose decrement is the atomic `UPDATE` shown
+below (`ProductRepository.reduceStock`). The race is still present in the
+single-line `POST /api/internal/products/{id}/reduce-stock`, which nothing in the
+platform calls any more but which is still exposed (SEC-10). The entry stays
+open until that endpoint is removed or moved onto the same query.
 
 **Fix:** Either add a `@Version` column to `Product` and retry on
 `OptimisticLockException`, or make the decrement atomic in the database:
@@ -789,6 +845,10 @@ content type. Combine with the OPS-02 allow-list.
 has no `@NotNull` and no default, so a product created without one NPEs the
 internal stock call — which means a checkout fails with an untyped 500.
 
+**Narrowed on 2026-10-12.** Checkout now goes through the batch endpoint, where
+a null `quantity` simply fails the `quantity >= :q` predicate and is reported as
+insufficient stock. The NPE remains in the single-line endpoint only.
+
 **Fix:** Add `@NotNull` with a default of `0` on the entity, and null-guard the
 comparison.
 
@@ -828,6 +888,13 @@ rolls back — but the stock decrements do not (see BUG-01).
 
 **Impact:** A RabbitMQ outage turns into lost inventory, not just a missing
 email.
+
+**Inventory half fixed on 2026-10-12** with BUG-01: the publish sits inside the
+`try` that restores the reserved stock, so a broker outage no longer costs
+inventory (`OrderServiceImplTest.failedNotificationRestoresStock`). What is
+still open is the rest of this entry — the publish is inside the transaction, so
+a broker outage still fails the order, and an email can still be published for
+an order whose commit then fails.
 
 **Fix:** Publish after commit — a `TransactionSynchronization` `afterCommit`
 hook, an `@TransactionalEventListener(phase = AFTER_COMMIT)`, or an outbox table.
@@ -1153,7 +1220,9 @@ characters loses the whole order. The SPA never hits it: it posts only to
 Worse than the rejection is *where* it happens: stock has already been
 decremented in product-service by the time the flush fails
 ([BUG-01](#bug-01--a-failed-multi-line-order-leaves-stock-permanently-decremented) is the
-same window), so a refused order still costs inventory.
+same window), so a refused order still costs inventory. *(No longer true since
+2026-10-12: the BUG-01 fix restores the stock when the persist fails. The 500
+itself is unchanged.)*
 
 **Reproduction:**
 
@@ -1301,6 +1370,7 @@ matters. The trade-off as originally accepted is recorded in
 |---|---|
 | `backend/docker-compose.yml` declared `depends_on: api-gateway: condition: service_healthy` on five services while `api-gateway` had no healthcheck, so the stack could not start as written. | **Fixed.** The gateway now carries a TCP healthcheck (`timeout 3 bash -c '</dev/tcp/127.0.0.1/8080'`) with a 30 s start period, chosen because the gateway has no actuator dependency. |
 | SEC-01, SEC-02, SEC-04, SEC-13, BUG-03, BUG-19, OPS-11 (and OPS-03 made moot) | **Fixed 2026-09-12** by [ADR-0012](../architecture/decisions/0012-keycloak-oidc-authentication.md): authentication moved to Keycloak and the hand-written token code was deleted. See the banner on each entry. |
+| BUG-01 (and the lost-inventory half of BUG-11 and BUG-22) | **Fixed 2026-10-12.** Checkout reserves the whole cart's stock in one atomic call to product-service and restores it if the order then fails. BUG-02 and BUG-09 are no longer reachable from checkout, but remain in the single-line stock endpoint. See the banner on BUG-01. |
 
 ---
 
@@ -1331,9 +1401,10 @@ Ordered by risk removed per unit of effort, not by severity alone.
   new customer hits.
 
 **5 — Make money and stock correct**
-- BUG-02 (atomic decrement), then BUG-01 (batch reservation or compensation).
-  BUG-02 first, because the atomic-decrement endpoint is a building block for
-  the batch call.
+- ~~BUG-02 (atomic decrement), then BUG-01 (batch reservation or compensation).~~
+  BUG-01 done 2026-10-12, with the atomic decrement built into the batch call.
+  What is left of BUG-02 is to delete the single-line `reduce-stock` endpoint,
+  or move it onto `ProductRepository.reduceStock`.
 - SEC-03: the Stripe webhook. Larger, and it changes the checkout state machine,
   so schedule it deliberately.
 

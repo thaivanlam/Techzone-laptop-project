@@ -90,9 +90,11 @@ the gateway holds no hardcoded host addresses.
 4. **Order Service** receives the request and verifies the same token again as a
    resource server. `AuthUtil` reads the `email` claim from the `SecurityContext` —
    email is the identity key; there is no server-side session.
-5. The service loads the user's cart from MySQL. For each cart item it calls
-   **Product Service** at `/api/internal/products/{id}` to validate stock, then
-   `POST /api/internal/products/{id}/reduce-stock` to decrement inventory.
+5. The service loads the user's cart from MySQL and reserves the stock for every
+   line in one call to **Product Service**,
+   `POST /api/internal/products/reduce-stock`, which takes all the lines or none.
+   If anything later in the checkout fails, it gives the stock back with
+   `POST /api/internal/products/restore-stock`.
 6. A `Payment` entity is persisted alongside the `Order`. For Stripe, the
    frontend has already obtained a `clientSecret` from
    `/order-manager/api/order/stripe-client-secret`, which created a Stripe

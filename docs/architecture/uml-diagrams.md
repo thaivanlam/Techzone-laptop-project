@@ -62,8 +62,9 @@ Stated here once, rather than repeated on every page:
 - **Retries and timeouts.** There are none to draw: `RestTemplate` calls run with
   default timeouts and no circuit breaker.
 - **Transaction boundaries across services.** None exist. Where a diagram shows
-  two databases changing in one flow, they change independently — which is the
-  whole of `BUG-01`.
+  two databases changing in one flow, they change independently. Checkout
+  bridges that with a compensating call rather than a transaction (the fix for
+  `BUG-01`), which the checkout sequence diagram does show.
 - **Horizontal scale.** Every service is drawn as one instance because one is
   what runs. Nothing in the design prevents more except the stock race
   (`BUG-02`).

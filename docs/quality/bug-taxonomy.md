@@ -322,9 +322,12 @@ microservice platform this is the structural risk class.
   Order-service decrements stock in product-service over REST, then continues. If
   a later line fails, the local transaction rolls back — the remote decrement
   does not, and there is no compensating action. Two services, two transaction
-  scopes, one assumption that they are a single one.
+  scopes, one assumption that they are a single one. Fixed 2026-10-12 by making
+  the assumption explicit instead: one atomic reservation call on the side that
+  owns the stock, and a compensating restore call when the order side fails.
 - **`BUG-11` — publishing to RabbitMQ inside the order transaction.** A broker
-  outage rolls the order back but not the stock already taken.
+  outage rolls the order back but not the stock already taken. The stock half
+  was closed with `BUG-01`; the order is still lost.
 - **`BUG-06` — a failed email send is swallowed.** The exception is discarded,
   the message is acked, and there is no dead-letter queue. Order-service believes
   the customer was notified; notification-service knows they were not; nobody
@@ -476,8 +479,9 @@ flow was never meant to permit.
 - **`BUG-18` — order status is unvalidated free text.** With no state machine, an
   order can move from `delivered` back to `pending`, or into a status that does
   not exist. The fulfilment workflow has no defined shape.
-- **`BUG-01` as a journey.** A checkout that fails on its third line leaves the
-  user with no order, and the catalogue with three units of stock gone.
+- **`BUG-01` as a journey.** A checkout that fails on its third line left the
+  user with no order, and the catalogue with the first two lines' stock gone.
+  Fixed 2026-10-12: the journey now ends with no order *and* no stock moved.
 
 **Where it hides here.** The two multi-step journeys — cart → checkout → payment
 → order, and login → session → privileged action.
@@ -500,7 +504,7 @@ other classes the defect belongs to.
 | `SEC-02` | Critical | Security | Integration |
 | `SEC-03` | Critical | Security | Workflow, Logical |
 | `SEC-04` | Critical | Security | — |
-| `BUG-01` | Critical | Integration | Logical, Workflow |
+| `BUG-01` (fixed 2026-10-12) | Critical | Integration | Logical, Workflow |
 | `SEC-05` | High | Security | — |
 | `SEC-06` *(fixed)* | ~~High~~ | Integration | Security, Functional |
 | `SEC-07` | High | Security | — |

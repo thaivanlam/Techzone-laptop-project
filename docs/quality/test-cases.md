@@ -171,11 +171,12 @@ the defect must flip that row to ✅ in the same change set — the rule is in
 |---|---|---|---|---|---|
 | **TC-ORD-01** | FR-ORD-1, FR-ORD-2 | A cart with two lines → `POST /api/order/users/payments/stripe` | `200`; one order dated today, total equal to the cart total, status `Accepted` | U, A | ✅ |
 | **TC-ORD-02** | FR-ORD-2 | → after placing | Every cart line is copied to an `order_item` with its snapshot and unit price | U | ✅ |
-| **TC-ORD-03** | FR-ORD-3 | Cart holds 2 of a product with stock 10 → place the order | Product stock is 8; one reduce-stock call per line | U, IX | ✅ |
+| **TC-ORD-03** | FR-ORD-3 | Cart holds 2 of a product with stock 10 → place the order | Product stock is 8; one batch reduce-stock call carrying every line | U, IX | ✅ |
 | **TC-ORD-04** | FR-ORD-1 | → after placing | The cart is emptied line by line | U | ✅ |
 | **TC-ORD-05** | FR-ORD-4 | An empty cart → place an order | `400`, the message says the cart is empty | U | ✅ |
 | **TC-ORD-06** | FR-ORD-4 | A buyer with no cart at all → place an order | `404`/`400`, no order written | U | ✅ |
-| **TC-ORD-07** | FR-ORD-3 | A two-line cart where the second reduce-stock call fails → place the order | *Specified:* neither line's stock moves. *Actual:* the first line's stock stays taken — `BUG-01` | U | ⚠️ |
+| **TC-ORD-07** | FR-ORD-3 | A two-line cart where the second line is short of stock → place the order | Neither line's stock moves, no order is written, the cart is untouched (`BUG-01`, fixed 2026-10-12) | U, IX | ✅ |
+| **TC-ORD-07b** | FR-ORD-3, NFR-REL-2 | The stock is reserved, then writing the order or publishing the confirmation fails | Every reserved line is given back with one restore-stock call; the original error still surfaces | U | ✅ |
 | **TC-ORD-08** | FR-ORD-5 | A customer with three orders → `GET /api/order/users/orders` | `200`, their own orders only, paginated | S, A | ✅ |
 | **TC-ORD-09** | FR-ORD-7 | Admin → `GET /api/admin/orders`, then `PUT .../orders/{id}/status` with `Shipped` | `200`; the stored status is `Shipped` | U, S | ✅ |
 | **TC-ORD-10** | FR-ORD-9 | Admin → set status to `banana` | *Specified:* `400`. *Actual:* stored verbatim — `BUG-18` | U | ⚠️ |

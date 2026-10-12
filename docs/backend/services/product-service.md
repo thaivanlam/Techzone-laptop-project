@@ -250,6 +250,8 @@ Paths are service-local. Prepend `/product-manager` for the gateway URL.
 | GET | `/seller/products` | 200 | **authenticated only** |
 | GET | `/internal/products/{productId}` | 200 | **authenticated only** (see [§7](#7-internal-api-for-order-service)) |
 | POST | `/internal/products/{productId}/reduce-stock` | 202 | **authenticated only** |
+| POST | `/internal/products/reduce-stock` | 202 | **authenticated only** |
+| POST | `/internal/products/restore-stock` | 202 | **authenticated only** |
 
 Each `/seller/...` method delegates to exactly the same service call as its
 `/admin/...` twin. The distinction is naming only — the gateway now requires
@@ -355,7 +357,9 @@ rather than 200, with a normal JSON body and no `Location` header.
 
 ## 7. Internal API for Order Service
 
-Two endpoints exist solely for Order Service:
+Four endpoints exist solely for Order Service. Checkout uses the two batch
+ones; the single-line `reduce-stock` is what checkout used until 2026-10-12 and
+is no longer called by anything in the platform.
 
 ### `GET /api/internal/products/{productId}`
 
@@ -379,6 +383,44 @@ product.setQuantity(product.getQuantity() - quantity);
 
 Returns **202 Accepted** with an empty body, though the write is synchronous.
 
+### `POST /api/internal/products/reduce-stock`
+
+The whole order's stock in one request — the fix for `BUG-01`.
+
+```json
+{ "items": [ { "productId": 7, "quantity": 2 }, { "productId": 8, "quantity": 1 } ] }
+```
+
+`ProductServiceImpl.reduceProductQuantities` is `@Transactional` and runs one
+conditional update per line (`ProductRepository.reduceStock`):
+
+```java
+@Query("UPDATE Product p SET p.quantity = p.quantity - :quantity "
+     + "WHERE p.productId = :productId AND p.quantity >= :quantity")
+int reduceStock(Long productId, int quantity);     // 0 rows == unknown product or short stock
+```
+
+A line that changes no row throws, and the transaction rolls back every line
+before it — **all lines are taken or none is**.
+
+| Outcome | Status | Body |
+|---|---|---|
+| Every line taken | 202 | empty |
+| A line exceeds the stock on hand (or the product's `quantity` is null) | 400 | `APIResponse` — `Insufficient product quantity for productId: {id}` |
+| A line names a product that does not exist | 404 | `APIResponse` |
+| Empty `items`, a missing `productId`, or a quantity ≤ 0 | 400 | `APIResponse` |
+
+### `POST /api/internal/products/restore-stock`
+
+The compensating call: same body, adds each line's quantity back
+(`ProductRepository.restoreStock`), in one transaction. Order Service calls it
+when a checkout fails after its stock was reserved. A line naming a product that
+has since been deleted is skipped rather than failing the others. Quantities
+must be positive; 202 on success.
+
+It is not idempotent — calling it twice adds the stock twice — and, like the
+rest of `/api/internal/**`, it is unauthenticated (`SEC-10`).
+
 ### How Order Service reaches it
 
 `RestTemplateProductServiceClient` builds URLs from
@@ -394,7 +436,11 @@ Returns **202 Accepted** with an empty body, though the write is synchronous.
 
 ### Concurrency
 
-The decrement is a read-modify-write with no optimistic locking (`@Version`) and
+The batch endpoint is safe under concurrency: the stock check and the decrement
+are one `UPDATE`, so two checkouts for the last unit cannot both succeed. What
+follows describes the **single-line** endpoint, which checkout no longer uses.
+
+Its decrement is a read-modify-write with no optimistic locking (`@Version`) and
 no `@Transactional` annotation on `reduceProductQuantity`. Two orders placed
 simultaneously for the last unit can both read `quantity = 1` and both write
 `quantity = 0`, overselling by one. A `@Version` column or an atomic

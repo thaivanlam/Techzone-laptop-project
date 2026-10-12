@@ -240,6 +240,14 @@ No version has been tagged yet. Everything below ships in the first release.
 
 ### Fixed
 
+- A checkout that fails no longer costs stock (`BUG-01`). The stock for every
+  line of an order is now reserved in one all-or-nothing call before the order is
+  written, and given back if the order then fails — including when the
+  confirmation email cannot be queued. Previously an order that failed on a later
+  line left the earlier lines' stock reduced with no order to show for it.
+  Product Service gained two internal endpoints for this,
+  `POST /api/internal/products/reduce-stock` and `.../restore-stock`.
+
 - A forged token is refused with `401` instead of `500` (`BUG-19`).
 - The browser no longer believes it is signed in after its session has expired
   (`BUG-03`).

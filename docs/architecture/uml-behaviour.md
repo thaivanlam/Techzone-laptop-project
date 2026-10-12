@@ -177,27 +177,41 @@ sequenceDiagram
     alt cart empty
         OS-->>SPA: 400 "Cart is empty"
     else
-        OS->>DB: INSERT customer_order + payment
-        loop every cart line
-            OS->>PS: POST /api/internal/products/{id}/reduce-stock
-            PS-->>OS: 202 accepted
-            OS->>DB: INSERT order_item with snapshot
+        OS->>PS: POST /api/internal/products/reduce-stock<br/>{items: every cart line}
+        alt a line is short of stock
+            PS-->>OS: 400, no line taken
+            OS-->>SPA: error, nothing written
+        else
+            PS-->>OS: 202 accepted, every line taken
+            OS->>DB: INSERT customer_order + payment
+            OS->>DB: INSERT order_item with snapshot, per line
+            OS->>DB: DELETE cart lines
+            OS->>MQ: publish order confirmation
+            opt any step after the reservation fails
+                OS->>PS: POST /api/internal/products/restore-stock<br/>{items: the same lines}
+                OS-->>SPA: error, transaction rolled back
+            end
+            OS-->>SPA: 201 OrderDTO
+            MQ->>NS: deliver → confirmation email
         end
-        OS->>DB: DELETE cart lines
-        OS->>MQ: publish order confirmation
-        OS-->>SPA: 200 OrderDTO
-        MQ->>NS: deliver → confirmation email
     end
 ```
 
-Two weaknesses are visible in the arrows rather than in the code. The payment
+One weakness is visible in the arrows rather than in the code. The payment
 outcome enters the system at step 9 **from the browser**, so the server records
-what the client claims (`SEC-03`). And the stock loop has no compensating
-action: a line that fails leaves the preceding lines' stock taken (`BUG-01`),
-because no transaction spans two databases.
+what the client claims (`SEC-03`).
 
-The loop is also where the oversell race lives — two checkouts reading the same
-stock figure before either writes (`BUG-02`).
+The stock arrows used to be a second one: a per-line loop with no compensating
+action, so a line that failed left the preceding lines' stock taken (`BUG-01`).
+Since 2026-10-12 the reservation is one all-or-nothing call and the `opt` block
+gives it back. No transaction spans the two databases, so this is compensation —
+if Order Service dies between the reservation and its commit, nothing runs the
+`opt` block.
+
+The single reservation call also removed the oversell race from checkout: the
+stock check and the decrement are one SQL statement, so two checkouts cannot
+both read the same figure (`BUG-02`, which survives only in the unused
+single-line endpoint).
 
 ---
 

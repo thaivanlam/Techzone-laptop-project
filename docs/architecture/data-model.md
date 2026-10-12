@@ -452,10 +452,14 @@ generated DDL, which is why `user.username` and `user.email` are `varchar(50)` w
 
 Ordered by what they cost if they fire.
 
-1. **Stock is not guarded by the database.** `quantity` is read, decremented and
-   written by the application. Two concurrent checkouts read the same value
-   (`BUG-02`); a multi-line order that fails half way leaves earlier lines'
-   stock taken (`BUG-01`).
+1. **Stock is guarded by the database only on the checkout path.** Since
+   2026-10-12 checkout decrements with a conditional
+   `UPDATE ... WHERE quantity >= :q`, every line of an order in one transaction,
+   so it can neither oversell nor leave a failed order's earlier lines taken
+   (`BUG-01`, fixed). The older single-line stock endpoint still reads,
+   decrements and writes in the application (`BUG-02`), and the stock and the
+   order still live in two databases: a checkout that dies between reserving and
+   committing leaves stock taken with no order.
 2. **Deleting a category deletes its products.** `Category.products` cascades
    `ALL`, so a category delete removes rows that carry order history's product
    ids (`BUG-13`).
